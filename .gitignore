@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tgz
+
+# Test coverage
+coverage/
+
+# Secrets / local config
+.env
+.env.*.local
+.npmrc
+
+# Internal dev-process docs (specs/plans) — must NOT be published
+docs/superpowers/
+
+# Editor / OS
+.DS_Store
+*.log
