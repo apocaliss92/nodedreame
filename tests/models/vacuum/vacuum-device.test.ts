@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { BaseDevice } from '../../../src/device/base-device.js';
+import { VacuumDevice } from '../../../src/models/vacuum/vacuum-device.js';
+import {
+  MiotState,
+  SuctionLevel,
+  WaterVolume,
+  ChargingStatus,
+  CleaningMode,
+} from '../../../src/models/vacuum/enums.js';
+import type { BaseDeviceDeps, PushLike } from '../../../src/device/base-device.js';
+import type { DreameDevice, DreameSession, PropertyResult } from '../../../src/cloud/types.js';
 
 describe('BaseDevice subclass surface contract (P3 prerequisite)', () => {
   it('exposes getProperty/setProperty/callAction as inheritable public methods', () => {
@@ -11,5 +21,113 @@ describe('BaseDevice subclass surface contract (P3 prerequisite)', () => {
       const descriptor = Object.getOwnPropertyDescriptor(BaseDevice.prototype, name);
       expect(typeof descriptor?.value).toBe('function');
     }
+  });
+});
+
+function fakeSession(): DreameSession {
+  return { accessToken: 't', uid: 'u', expiresAt: Date.now() + 1e6, region: 'eu' };
+}
+
+function fakeDevice(model = 'dreame.vacuum.r2538z'): DreameDevice {
+  return { did: 'd1', model, name: 'Robi', online: true, raw: {} };
+}
+
+function fakePush(): PushLike {
+  const fp: PushLike = {
+    on: () => fp,
+    open: () => Promise.resolve(),
+    close: () => Promise.resolve(),
+    refreshSession: () => Promise.resolve(),
+  };
+  return fp;
+}
+
+// Build deps whose getProperties returns a fixed PropertyResult[] (seeds the
+// cache via refreshProperties). No banned casts; the closures are exactly typed.
+function depsReturning(results: PropertyResult[]): BaseDeviceDeps {
+  return {
+    createPush: () => fakePush(),
+    getProperties: () => Promise.resolve(results),
+    setProperties: () => Promise.resolve([]),
+    callAction: () => Promise.resolve({}),
+  };
+}
+
+describe('VacuumDevice state getters', () => {
+  it('decodes seeded properties into typed state', async () => {
+    const results: PropertyResult[] = [
+      { siid: 2, piid: 1, value: 6, code: 0 }, // STATE = Charging
+      { siid: 2, piid: 2, value: 0, code: 0 }, // ERROR = Clear
+      { siid: 4, piid: 18, value: '18,107', code: 0 }, // FAULTS
+      { siid: 3, piid: 1, value: 87, code: 0 }, // battery
+      { siid: 3, piid: 2, value: 1, code: 0 }, // charging = Charging
+      { siid: 4, piid: 4, value: 2, code: 0 }, // suction = Intense
+      { siid: 4, piid: 5, value: 1, code: 0 }, // water = Low
+      { siid: 2, piid: 6, value: 2, code: 0 }, // clean-mode-setting = SweepAndMop
+      { siid: 4, piid: 63, value: 42, code: 0 }, // progress
+    ];
+    const v = new VacuumDevice({
+      device: fakeDevice(),
+      region: 'eu',
+      sessionRef: fakeSession,
+      deps: depsReturning(results),
+      fetchInitialValues: false,
+    });
+    await v.start();
+    await v.refreshProperties([
+      { siid: 2, piid: 1 },
+      { siid: 2, piid: 2 },
+      { siid: 4, piid: 18 },
+      { siid: 3, piid: 1 },
+      { siid: 3, piid: 2 },
+      { siid: 4, piid: 4 },
+      { siid: 4, piid: 5 },
+      { siid: 2, piid: 6 },
+      { siid: 4, piid: 63 },
+    ]);
+
+    expect(v.status).toBe(MiotState.Charging);
+    expect(v.statusRaw).toBe(6);
+    expect(v.battery).toBe(87);
+    expect(v.charging).toBe(ChargingStatus.Charging);
+    expect(v.isCharging).toBe(true);
+    expect(v.isDocked).toBe(true); // Charging/ChargingComplete => docked
+    expect(v.suction).toBe(SuctionLevel.Intense);
+    expect(v.water).toBe(WaterVolume.Low);
+    expect(v.cleaningMode).toBe(CleaningMode.SweepAndMop);
+    expect(v.errorCode).toBe(0);
+    expect(v.faults).toEqual([18, 107]);
+    expect(v.taskProgressPct).toBe(42);
+    await v.close();
+  });
+
+  it('returns null typed-state for unseeded / out-of-enum values', async () => {
+    const v = new VacuumDevice({
+      device: fakeDevice(),
+      region: 'eu',
+      sessionRef: fakeSession,
+      deps: depsReturning([{ siid: 4, piid: 4, value: 99, code: 0 }]),
+      fetchInitialValues: false,
+    });
+    await v.start();
+    expect(v.status).toBeNull();
+    expect(v.battery).toBeNull();
+    await v.refreshProperties([{ siid: 4, piid: 4 }]);
+    expect(v.suctionRaw).toBe(99);
+    expect(v.suction).toBeNull(); // 99 not a SuctionLevel member
+    await v.close();
+  });
+
+  it('exposes the rich vacuum capabilities (r2538z assumed) + generic tokens', () => {
+    const v = new VacuumDevice({
+      device: fakeDevice(),
+      region: 'eu',
+      sessionRef: fakeSession,
+      deps: depsReturning([]),
+      fetchInitialValues: false,
+    });
+    expect(v.vacuumCapabilities.canMop).toBe(true);
+    expect(v.vacuumCapabilities.verified).toBe(false); // r2538z assumed
+    expect(v.capabilities.has('mop')).toBe(true); // inherited generic tokens
   });
 });
