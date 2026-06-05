@@ -1,5 +1,13 @@
 import { BaseDevice, type BaseDeviceInput } from '../../device/base-device.js';
-import { MOWER_PROP } from './properties.js';
+import {
+  MOWER_ACTION,
+  MOWER_PROP,
+  buildAllAreaPayload,
+  buildEdgePayload,
+  buildResumePayload,
+  buildSpotPayload,
+  buildZonePayload,
+} from './properties.js';
 import { MowerChargingStatus, MowerControlAction, MowerStatus } from './enums.js';
 import {
   asNum,
@@ -14,6 +22,7 @@ import {
   getMowerCapabilities,
   type MowerCapabilities,
 } from './capabilities.js';
+import { DreameError } from '../../transport/errors.js';
 
 const STATUS = enumLookup<MowerStatus>(
   Object.values(MowerStatus).filter((v): v is MowerStatus => typeof v === 'number'),
@@ -94,6 +103,80 @@ export class MowerDevice extends BaseDevice {
   }
   get controlAction(): MowerControlAction | null {
     return this.controlStatus?.action ?? null;
+  }
+
+  // -- command helpers ----------------------------------------------------
+  #requireCap(flag: boolean, op: string, feature: string): void {
+    if (!flag) {
+      throw new DreameError(`${op}: model ${this.model} does not support ${feature}`);
+    }
+  }
+
+  /** Send a scheduling-task action (2:50) carrying a single opcode object. */
+  #sendTask(payload: Record<string, unknown>): Promise<unknown> {
+    return this.callAction(MOWER_PROP.SCHEDULING_TASK.siid, MOWER_PROP.SCHEDULING_TASK.piid, [
+      payload,
+    ]);
+  }
+
+  // -- no-arg commands ----------------------------------------------------
+  /**
+   * Start the generic mowing action (siid 5 aiid 1). Named `startMowing` — NOT
+   * `start` — because `BaseDevice.start()` is the MQTT lifecycle method the
+   * facade relies on; overriding it would break handle startup.
+   */
+  startMowing(): Promise<unknown> {
+    return this.callAction(MOWER_ACTION.START_MOWING.siid, MOWER_ACTION.START_MOWING.aiid, []);
+  }
+  pause(): Promise<unknown> {
+    return this.callAction(MOWER_ACTION.PAUSE.siid, MOWER_ACTION.PAUSE.aiid, []);
+  }
+  stop(): Promise<unknown> {
+    return this.callAction(MOWER_ACTION.STOP.siid, MOWER_ACTION.STOP.aiid, []);
+  }
+  /** Send the mower to its dock (siid 5 aiid 3). */
+  dock(): Promise<unknown> {
+    return this.callAction(MOWER_ACTION.DOCK.siid, MOWER_ACTION.DOCK.aiid, []);
+  }
+  /**
+   * Resume mowing after a pause. Encoded as the continueControl opcode
+   * `{m:'a', p:0, o:5}` sent as the single in-param of the SCHEDULING_TASK
+   * (2:50) action — NOT a siid-5 action. Mirrors the donor TASK_PAYLOAD_RESUME.
+   */
+  async resume(): Promise<unknown> {
+    this.#requireCap(this.#caps.canResume, 'resume', 'resume');
+    return this.#sendTask(buildResumePayload());
+  }
+
+  // -- targeted mowing ----------------------------------------------------
+  /** All-area, map-targeted mowing (2:50 o:100). */
+  async startMowingAllArea(mapId: number): Promise<unknown> {
+    this.#requireCap(this.#caps.canMowAllArea, 'startMowingAllArea', 'all-area mowing');
+    return this.#sendTask(buildAllAreaPayload(Math.trunc(mapId)));
+  }
+  /** Zone-selective mowing (2:50 o:102). */
+  async startMowingZones(zoneIds: number[]): Promise<unknown> {
+    this.#requireCap(this.#caps.canMowZones, 'startMowingZones', 'zone mowing');
+    if (zoneIds.length === 0) {
+      throw new RangeError('startMowingZones: zoneIds must not be empty');
+    }
+    return this.#sendTask(buildZonePayload(zoneIds.map((z) => Math.trunc(z))));
+  }
+  /** Edge / contour mowing (2:50 o:101). Contour ids are two-int pairs [[1,0]]. */
+  async startMowingEdges(contourIds: number[][]): Promise<unknown> {
+    this.#requireCap(this.#caps.canMowEdges, 'startMowingEdges', 'edge mowing');
+    if (contourIds.length === 0) {
+      throw new RangeError('startMowingEdges: contourIds must not be empty');
+    }
+    return this.#sendTask(buildEdgePayload(contourIds));
+  }
+  /** Spot mowing (2:50 o:103). */
+  async startMowingSpots(spotAreaIds: number[]): Promise<unknown> {
+    this.#requireCap(this.#caps.canMowSpots, 'startMowingSpots', 'spot mowing');
+    if (spotAreaIds.length === 0) {
+      throw new RangeError('startMowingSpots: spotAreaIds must not be empty');
+    }
+    return this.#sendTask(buildSpotPayload(spotAreaIds.map((s) => Math.trunc(s))));
   }
 
   /** Props worth seeding on start() / polling — exported for the facade. */
