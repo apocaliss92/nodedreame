@@ -3,12 +3,27 @@ import type { DreameDevice, DreameSession } from '../cloud/types.js';
 import { login as defaultLogin, refresh as defaultRefresh } from '../auth/dreame-account.js';
 import { listDevices as defaultListDevices } from '../cloud/devices.js';
 import { BaseDevice } from '../device/base-device.js';
+import { VacuumDevice } from '../models/vacuum/vacuum-device.js';
 import { TypedEmitter } from '../transport/typed-emitter.js';
 import { DreameAuthError } from '../transport/errors.js';
 import type { FetchImpl } from '../transport/http.js';
 import type { NodreameOptions, DeviceEvent, StateChangedEvent } from './types.js';
 
 const DEFAULT_REFRESH_LEEWAY_SECS = 100;
+
+/**
+ * Device-type factory: pick the handle class by model prefix. Returns a
+ * `BaseDevice` constructor (`VacuumDevice` is a subtype, so the return is
+ * covariant and needs no cast). The `if`-chain is intentionally OPEN for
+ * extension — P4 adds a `dreame.mower.` branch returning a `MowerDevice`.
+ */
+export function deviceClassFor(model: string): typeof BaseDevice {
+  if (model.startsWith('dreame.vacuum.')) {
+    return VacuumDevice;
+  }
+  // P4: if (model.startsWith('dreame.mower.')) return MowerDevice;
+  return BaseDevice;
+}
 
 /** Args the facade passes to `createDevice` (a seam for tests). */
 export interface CreateDeviceArgs {
@@ -47,8 +62,9 @@ function defaultDeps(opts: NodreameOptions): NodreameDeps {
     login: (input) => defaultLogin(input),
     refresh: (input) => defaultRefresh(input),
     listDevices: (input) => defaultListDevices(input),
-    createDevice: (args) =>
-      new BaseDevice({
+    createDevice: (args) => {
+      const DeviceClass = deviceClassFor(args.device.model);
+      return new DeviceClass({
         device: args.device,
         region: args.region,
         sessionRef: args.sessionRef,
@@ -56,7 +72,8 @@ function defaultDeps(opts: NodreameOptions): NodreameDeps {
           ? { fetchInitialValues: opts.fetchInitialValues }
           : {}),
         ...(opts.pollIntervalMs !== undefined ? { pollIntervalMs: opts.pollIntervalMs } : {}),
-      }),
+      });
+    },
   };
 }
 
