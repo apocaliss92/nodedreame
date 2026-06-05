@@ -61,11 +61,13 @@ const SENSITIVE_KEY_FRAGMENTS: readonly string[] = [
   'map_info',
   'mapinfo',
   'mapblob',
-  // free-text device names that may carry PII
+  // free-text device names that may carry PII. NOTE: the bare fragment `name` is
+  // intentionally NOT listed — it would over-match the catalog's command `name`
+  // field (an enum-derived, non-sensitive label). The specific custom-name
+  // fields below cover every PII-bearing case.
   'customname',
   'devicename',
   'nickname',
-  'name', // device custom name; enum/value keys are never literally "name"
 ];
 
 /** Bare `ip` is matched exactly (substring-`ip` would over-match e.g. `equip`). */

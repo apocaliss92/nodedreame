@@ -1,15 +1,19 @@
 import { describe, it, expect, vi } from 'vitest';
+import { TypedEmitter } from '../../src/transport/typed-emitter.js';
 import {
   buildCatalog,
+  createDumper,
   PropertyAccumulator,
   vacuumDecoders,
   mowerDecoders,
 } from '../../src/diagnostics/dumper.js';
+import { DeviceDumpSchema } from '../../src/diagnostics/dump-format.js';
 import { VacuumDevice } from '../../src/models/vacuum/vacuum-device.js';
 import { MowerDevice } from '../../src/models/mower/mower-device.js';
 import { MiotState } from '../../src/models/vacuum/enums.js';
 import { MowerTaskStatus } from '../../src/models/mower/enums.js';
 import type { DreameDevice, DreameSession } from '../../src/cloud/types.js';
+import type { DeviceEvent, PropertyChangedEvent } from '../../src/api/types.js';
 
 function fakeSession(): DreameSession {
   return { accessToken: 't', uid: 'u', expiresAt: Date.now() + 1e6, region: 'eu' };
@@ -168,3 +172,158 @@ describe('PropertyAccumulator', () => {
     expect(obs.unmapped).toEqual([]);
   });
 });
+
+/** The event map the dumper observes — exactly the BaseDevice slice it hooks. */
+type FakeEvents = {
+  propertyChanged: [PropertyChangedEvent];
+  event: [DeviceEvent];
+};
+
+/**
+ * A minimal fake satisfying the dumper's DumperDevice slice (cast-free). Extends
+ * the same {@link TypedEmitter} a real device uses, so its `on`/`off`/`emit` are
+ * correctly typed and structurally assignable to {@link DumperDevice}; the leak
+ * assertions read `rawEmitter.listenerCount(event)`.
+ */
+class FakeDevice extends TypedEmitter<FakeEvents> {
+  model = 'dreame.vacuum.r2532a';
+  deviceId = 'd1';
+  capabilities = { model: this.model, has: (): boolean => false, list: (): string[] => ['mop'] };
+  refreshCalls = 0;
+  readonly #counts = new Map<string, number>();
+  override on<K extends keyof FakeEvents & string>(
+    event: K,
+    listener: (...args: FakeEvents[K]) => void,
+  ): this {
+    this.#counts.set(event, (this.#counts.get(event) ?? 0) + 1);
+    return super.on(event, listener);
+  }
+  override off<K extends keyof FakeEvents & string>(
+    event: K,
+    listener: (...args: FakeEvents[K]) => void,
+  ): this {
+    this.#counts.set(event, Math.max(0, (this.#counts.get(event) ?? 0) - 1));
+    return super.off(event, listener);
+  }
+  async refreshFromCache(): Promise<void> {
+    this.refreshCalls += 1;
+  }
+  emitProperty(siid: number, piid: number, value: unknown): void {
+    this.emit('propertyChanged', {
+      deviceId: this.deviceId,
+      siid,
+      piid,
+      value,
+      previousValue: null,
+    });
+  }
+  emitEvent(siid: number, eiid: number, args: unknown[]): void {
+    this.emit('event', { deviceId: this.deviceId, siid, eiid, arguments: args });
+  }
+  countOf(event: 'propertyChanged' | 'event'): number {
+    return this.#counts.get(event) ?? 0;
+  }
+  totalListeners(): number {
+    return this.countOf('propertyChanged') + this.countOf('event');
+  }
+}
+
+/** A fake device with NO refreshFromCache — exercises the feature-detect skip. */
+class NoRefreshDevice extends TypedEmitter<FakeEvents> {
+  model = 'dreame.vacuum.r2532a';
+  deviceId = 'd1';
+  capabilities = { model: this.model, has: (): boolean => false, list: (): string[] => ['mop'] };
+  emitProperty(siid: number, piid: number, value: unknown): void {
+    this.emit('propertyChanged', {
+      deviceId: this.deviceId,
+      siid,
+      piid,
+      value,
+      previousValue: null,
+    });
+  }
+}
+
+describe('Dumper lifecycle', () => {
+  it('start() subscribes to propertyChanged + event and does an initial refreshFromCache', async () => {
+    const dev = new FakeDevice();
+    const dumper = createDumper(dev);
+    await dumper.start();
+    expect(dev.countOf('propertyChanged')).toBe(1);
+    expect(dev.countOf('event')).toBe(1);
+    expect(dev.refreshCalls).toBe(1);
+    await dumper.stop();
+  });
+
+  it('an emitted propertyChanged lands in the accumulator', async () => {
+    const dev = new FakeDevice();
+    const dumper = createDumper(dev, { refreshIntervalMs: 0 });
+    await dumper.start();
+    dev.emitProperty(2, 1, 6);
+    await dumper.stop();
+    const obs = dumper.export().observations.properties['2.1'];
+    if (!obs) throw new Error('expected 2.1');
+    expect(obs.values).toEqual([6]);
+  });
+
+  it('stop() removes every listener (no leaks) and is idempotent', async () => {
+    const dev = new FakeDevice();
+    const dumper = createDumper(dev);
+    await dumper.start();
+    await dumper.stop();
+    await dumper.stop(); // idempotent — no throw, no double-remove
+    expect(dev.totalListeners()).toBe(0);
+  });
+
+  it('ignores further emits after stop()', async () => {
+    const dev = new FakeDevice();
+    const dumper = createDumper(dev, { refreshIntervalMs: 0 });
+    await dumper.start();
+    dev.emitProperty(2, 1, 6);
+    await dumper.stop();
+    dev.emitProperty(2, 1, 2); // listener detached — must be ignored
+    const obs = dumper.export().observations.properties['2.1'];
+    if (!obs) throw new Error('expected 2.1');
+    expect(obs.values).toEqual([6]);
+  });
+
+  it('start() is idempotent (a second start does not double-subscribe)', async () => {
+    const dev = new FakeDevice();
+    const dumper = createDumper(dev);
+    await dumper.start();
+    await dumper.start();
+    expect(dev.countOf('propertyChanged')).toBe(1);
+    await dumper.stop();
+  });
+
+  it('arms a periodic refreshFromCache on the configured interval', async () => {
+    vi.useFakeTimers();
+    try {
+      const dev = new FakeDevice();
+      const dumper = createDumper(dev, { refreshIntervalMs: 1000 });
+      await dumper.start();
+      expect(dev.refreshCalls).toBe(1); // initial
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(dev.refreshCalls).toBe(2);
+      await dumper.stop();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(dev.refreshCalls).toBe(2); // timer cleared on stop
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('tolerates a target without refreshFromCache (bare BaseDevice)', async () => {
+    // A bare device that OMITS refreshFromCache (optional in DumperDevice) — the
+    // dumper must feature-detect and skip the shadow refresh without throwing.
+    const dev = new NoRefreshDevice();
+    const dumper = createDumper(dev);
+    await dumper.start();
+    dev.emitProperty(2, 1, 6); // still captures live propertyChanged
+    await dumper.stop();
+    const obs = dumper.export().observations.properties['2.1'];
+    if (!obs) throw new Error('expected 2.1');
+    expect(obs.values).toEqual([6]);
+  });
+});
+
