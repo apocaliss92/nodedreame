@@ -285,10 +285,12 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
 
   // -- targeted cleaning --------------------------------------------------
   async cleanSegments(ids: number[], opts: CleanOpts = {}): Promise<unknown> {
-    this.#requireCap(this.#caps.canCleanPerRoom, 'cleanSegments', 'per-room cleaning');
+    // Argument validation precedes capability gating (donor convention): an
+    // empty array throws RangeError regardless of model capability.
     if (ids.length === 0) {
       throw new RangeError('cleanSegments: ids must not be empty');
     }
+    this.#requireCap(this.#caps.canCleanPerRoom, 'cleanSegments', 'per-room cleaning');
     const { repeats, fan, water } = this.#resolveCleanOpts(opts);
     const selects = ids.map((id) => [id, repeats, fan, water, 1]);
     return this.#startCustom(CUSTOM_CLEAN_MODE.SEGMENT, { selects });
@@ -297,10 +299,12 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
     zones: Array<{ x0: number; y0: number; x1: number; y1: number }>,
     opts: CleanOpts = {},
   ): Promise<unknown> {
-    this.#requireCap(this.#caps.canCleanPerRoom, 'cleanZones', 'per-room cleaning');
+    // Argument validation precedes capability gating (donor convention): an
+    // empty array throws RangeError regardless of model capability.
     if (zones.length === 0) {
       throw new RangeError('cleanZones: zones must not be empty');
     }
+    this.#requireCap(this.#caps.canCleanPerRoom, 'cleanZones', 'per-room cleaning');
     const { repeats, fan, water } = this.#resolveCleanOpts(opts);
     const areas = zones.map((z) => [
       Math.round(z.x0),

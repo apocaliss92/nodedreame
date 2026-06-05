@@ -179,6 +179,16 @@ describe('VacuumDevice commands -> wire payloads', () => {
     await v.close();
   });
 
+  it('validates an empty target array BEFORE the capability gate (RangeError, not DreameError)', async () => {
+    // Model with canCleanPerRoom=false: an empty array must still surface the
+    // argument error (RangeError), not the capability error — argument
+    // validation precedes capability gating (donor convention).
+    const { v } = build('dreame.vacuum.zzz999');
+    await expect(v.cleanSegments([])).rejects.toBeInstanceOf(RangeError);
+    await expect(v.cleanZones([])).rejects.toBeInstanceOf(RangeError);
+    await v.close();
+  });
+
   it('throws when the model lacks per-room capability', async () => {
     const { v } = build('dreame.vacuum.zzz999'); // fallback: canCleanPerRoom=false
     await expect(v.cleanSegments([1])).rejects.toThrow(/per-room/);
