@@ -35,11 +35,16 @@ interface FakeOpts {
 class FakeClient extends EventEmitter {
   subscribed: string[] = [];
   ended = false;
+  dropped = false;
   constructor(
     public url: string,
     public opts: FakeOpts,
   ) {
     super();
+  }
+  /** A client is a live connection only if it neither dropped nor was ended. */
+  get isLive(): boolean {
+    return !this.ended && !this.dropped;
   }
   // Narrow EventEmitter#removeListener to the MqttLikeClient-compatible
   // signature so the fake structurally satisfies the injected connect factory.
@@ -64,6 +69,7 @@ class FakeClient extends EventEmitter {
     this.emit('message', '/topic', Buffer.from(JSON.stringify(obj)));
   }
   drop(): void {
+    this.dropped = true;
     this.emit('close');
   }
 }
@@ -174,6 +180,49 @@ describe('DreamePush — durable reconnect', () => {
     expect(created[1]!.opts.password).toBe('NEW');
     expect(created[1]!.subscribed).toEqual(['/status/DID/UID/dreame.vacuum.r2532a/eu/']);
     await push.close();
+  });
+
+  it('refreshSession() before an armed reconnect timer fires leaves exactly one live client on the new token', async () => {
+    vi.useFakeTimers();
+    try {
+      const { connect, created } = makeFactory();
+      const push = new DreamePush({
+        device,
+        session: session('OLD'),
+        region: 'eu',
+        connect,
+        reconnectBackoffMs: 5000, // non-zero so the drop arms a pending timer
+      });
+      const openPromise = push.open();
+      await vi.advanceTimersByTimeAsync(0); // flush the queued goConnected microtask
+      await openPromise;
+      expect(created).toHaveLength(1);
+
+      // Unexpected drop arms the reconnect timer (does NOT fire yet).
+      created[0]!.drop();
+      expect(created).toHaveLength(1);
+
+      // refreshSession runs BEFORE the armed timer fires: it tears down the old
+      // client and reconnects on the new token.
+      const refreshPromise = push.refreshSession(session('NEW'));
+      await vi.advanceTimersByTimeAsync(0); // flush refresh's goConnected microtask
+      await refreshPromise;
+
+      // Now let the stale reconnect timer's backoff elapse. It must NOT spawn a
+      // second live client.
+      await vi.advanceTimersByTimeAsync(10000);
+
+      // Exactly one live client: the refresh's, on the NEW token. The original
+      // client dropped; no orphaned extra client from the stale timer.
+      const live = created.filter((c) => c.isLive);
+      expect(live).toHaveLength(1);
+      expect(live[0]!.opts.password).toBe('NEW');
+      expect(created[0]!.isLive).toBe(false);
+
+      await push.close();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not reconnect after an explicit close()', async () => {

@@ -168,6 +168,13 @@ export class DreamePush extends TypedEmitter<DreamePushEvents> {
     if (this.#closed) {
       return;
     }
+    // Cancel any reconnect armed by a prior drop. Without this, a timer armed
+    // before refresh fires AFTER refresh reconnects, spawning a second live
+    // client and orphaning the first (mirror what close() does).
+    if (this.#reconnectTimer) {
+      clearTimeout(this.#reconnectTimer);
+      this.#reconnectTimer = null;
+    }
     await this.#teardownClient();
     await this.#connectAndSubscribe();
   }
@@ -228,7 +235,9 @@ export class DreamePush extends TypedEmitter<DreamePushEvents> {
     this.#client = null;
     this.#reconnectTimer = setTimeout(() => {
       this.#reconnectTimer = null;
-      if (this.#closed) {
+      // Skip if we were closed or a client was already (re)established in the
+      // meantime (e.g. by refreshSession) — never spawn a duplicate connection.
+      if (this.#closed || this.#client) {
         return;
       }
       void this.#connectAndSubscribe().catch((err: unknown) => {
