@@ -4,6 +4,7 @@ import { login as defaultLogin, refresh as defaultRefresh } from '../auth/dreame
 import { listDevices as defaultListDevices } from '../cloud/devices.js';
 import { BaseDevice } from '../device/base-device.js';
 import { VacuumDevice } from '../models/vacuum/vacuum-device.js';
+import { MowerDevice } from '../models/mower/mower-device.js';
 import { TypedEmitter } from '../transport/typed-emitter.js';
 import { DreameAuthError } from '../transport/errors.js';
 import type { FetchImpl } from '../transport/http.js';
@@ -13,15 +14,16 @@ const DEFAULT_REFRESH_LEEWAY_SECS = 100;
 
 /**
  * Device-type factory: pick the handle class by model prefix. Returns a
- * `BaseDevice` constructor (`VacuumDevice` is a subtype, so the return is
- * covariant and needs no cast). The `if`-chain is intentionally OPEN for
- * extension — P4 adds a `dreame.mower.` branch returning a `MowerDevice`.
+ * `BaseDevice` constructor (`VacuumDevice` / `MowerDevice` are subtypes, so the
+ * return is covariant and needs no cast).
  */
 export function deviceClassFor(model: string): typeof BaseDevice {
   if (model.startsWith('dreame.vacuum.')) {
     return VacuumDevice;
   }
-  // P4: if (model.startsWith('dreame.mower.')) return MowerDevice;
+  if (model.startsWith('dreame.mower.')) {
+    return MowerDevice;
+  }
   return BaseDevice;
 }
 

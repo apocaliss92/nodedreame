@@ -5,6 +5,7 @@ import type { DreameDevice, DreameSession } from '../../src/cloud/types.js';
 import type { BaseDeviceDeps, PushLike } from '../../src/device/base-device.js';
 import { BaseDevice } from '../../src/device/base-device.js';
 import { VacuumDevice } from '../../src/models/vacuum/vacuum-device.js';
+import { MowerDevice } from '../../src/models/mower/mower-device.js';
 
 const sessionAt = (token: string, expiresAt: number): DreameSession => ({
   accessToken: token,
@@ -374,11 +375,12 @@ describe('Nodreame.ensureSession — refresh-failure fallback (FIX 3)', () => {
   });
 });
 
-describe('deviceClassFor (P3 device-type factory)', () => {
-  it('maps dreame.vacuum.* -> VacuumDevice, else BaseDevice', () => {
+describe('deviceClassFor (device-type factory)', () => {
+  it('maps dreame.vacuum.* -> VacuumDevice, dreame.mower.* -> MowerDevice, else BaseDevice', () => {
     expect(deviceClassFor('dreame.vacuum.r2538z')).toBe(VacuumDevice);
     expect(deviceClassFor('dreame.vacuum.r2532a')).toBe(VacuumDevice);
-    expect(deviceClassFor('dreame.mower.x')).toBe(BaseDevice);
+    expect(deviceClassFor('dreame.mower.p2255')).toBe(MowerDevice);
+    expect(deviceClassFor('dreame.mower.g2422')).toBe(MowerDevice);
     expect(deviceClassFor('something.else')).toBe(BaseDevice);
   });
 });
@@ -402,13 +404,14 @@ describe('Nodreame.discoverDevices — picks the right handle class per model', 
     };
   }
 
-  it('returns a VacuumDevice for dreame.vacuum.* and a BaseDevice for an unknown model', async () => {
+  it('returns a MowerDevice for dreame.mower.* and a VacuumDevice for dreame.vacuum.*', async () => {
     const records: DreameDevice[] = [
       { did: 'v1', model: 'dreame.vacuum.r2538z', name: 'Robi', online: true, raw: {} },
-      { did: 'x1', model: 'dreame.mower.unknownz', name: 'Mowy', online: true, raw: {} },
+      { did: 'm1', model: 'dreame.mower.p2255', name: 'Mowy', online: true, raw: {} },
+      { did: 'x1', model: 'dreame.unknown.zzz', name: 'X', online: true, raw: {} },
     ];
     // Exercise the REAL factory via deviceClassFor, with offline base deps so
-    // start() never opens an MQTT push. Covariant return: VacuumDevice IS a
+    // start() never opens an MQTT push. Covariant return: each subtype IS a
     // BaseDevice, so no cast is needed.
     const deps = makeDeps({
       listDevices: vi.fn(async () => records),
@@ -421,8 +424,10 @@ describe('Nodreame.discoverDevices — picks the right handle class per model', 
     await n.login();
     const devices = await n.discoverDevices();
     expect(devices[0]).toBeInstanceOf(VacuumDevice);
-    expect(devices[1]).toBeInstanceOf(BaseDevice);
+    expect(devices[1]).toBeInstanceOf(MowerDevice);
     expect(devices[1]).not.toBeInstanceOf(VacuumDevice);
+    expect(devices[2]).toBeInstanceOf(BaseDevice);
+    expect(devices[2]).not.toBeInstanceOf(MowerDevice);
     await n.close();
   });
 });
