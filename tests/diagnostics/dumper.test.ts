@@ -1,7 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
-import { buildCatalog } from '../../src/diagnostics/dumper.js';
+import {
+  buildCatalog,
+  PropertyAccumulator,
+  vacuumDecoders,
+  mowerDecoders,
+} from '../../src/diagnostics/dumper.js';
 import { VacuumDevice } from '../../src/models/vacuum/vacuum-device.js';
 import { MowerDevice } from '../../src/models/mower/mower-device.js';
+import { MiotState } from '../../src/models/vacuum/enums.js';
+import { MowerTaskStatus } from '../../src/models/mower/enums.js';
 import type { DreameDevice, DreameSession } from '../../src/cloud/types.js';
 
 function fakeSession(): DreameSession {
@@ -75,5 +82,89 @@ describe('buildCatalog (static, read-only)', () => {
     // VacuumDevice still exposes VACUUM_ACTION (constructed as a vacuum); a real
     // bare BaseDevice has no model action map → commands empty (covered later).
     expect(Array.isArray(cat.commands)).toBe(true);
+  });
+});
+
+describe('PropertyAccumulator', () => {
+  it('records distinct values with count/firstSeen/lastSeen', () => {
+    const acc = new PropertyAccumulator(vacuumDecoders());
+    acc.record(2, 1, 6, 1000); // MiotState.Charging
+    acc.record(2, 1, 6, 1100); // duplicate value, new time
+    acc.record(2, 1, 2, 1200); // MiotState.Standby
+    const snap = acc.snapshot();
+    const obs = snap['2.1'];
+    if (!obs) throw new Error('expected 2.1');
+    expect(obs.values).toEqual([6, 2]); // distinct, insertion order
+    expect(obs.count).toBe(3); // total observations
+    expect(obs.firstSeen).toBe(1000);
+    expect(obs.lastSeen).toBe(1200);
+  });
+
+  it('flags a KNOWN enum value as NOT unmapped and names the enum', () => {
+    const acc = new PropertyAccumulator(vacuumDecoders());
+    acc.record(2, 1, MiotState.Charging, 1000);
+    const obs = acc.snapshot()['2.1'];
+    if (!obs) throw new Error('expected 2.1');
+    expect(obs.unmapped).toEqual([]);
+    expect(obs.enum).toBe('MiotState');
+  });
+
+  it('flags a BOGUS value on a mapped key as unmapped', () => {
+    const acc = new PropertyAccumulator(vacuumDecoders());
+    acc.record(2, 1, 6, 1000); // known
+    acc.record(2, 1, 250, 1100); // not a MiotState member
+    const obs = acc.snapshot()['2.1'];
+    if (!obs) throw new Error('expected 2.1');
+    expect(obs.values).toEqual([6, 250]);
+    expect(obs.unmapped).toEqual([250]);
+  });
+
+  it('flags mower taskStatus (5.104): a known code is mapped, a bogus one is unmapped', () => {
+    const acc = new PropertyAccumulator(mowerDecoders());
+    acc.record(5, 104, MowerTaskStatus.SpotIncomplete, 1000); // 7 — documented member
+    acc.record(5, 104, 99, 1100); // not a MowerTaskStatus member
+    const obs = acc.snapshot()['5.104'];
+    if (!obs) throw new Error('expected 5.104');
+    expect(obs.values).toEqual([7, 99]);
+    expect(obs.unmapped).toEqual([99]); // 7 mapped, 99 unmapped
+    expect(obs.enum).toBe('MowerTaskStatus');
+  });
+
+  it('leaves unmapped empty + enum undefined for an UNMAPPED key (no decoder)', () => {
+    const acc = new PropertyAccumulator(vacuumDecoders());
+    acc.record(9, 2, 42, 1000); // MAIN_BRUSH_LEFT — a plain percentage, no enum
+    const obs = acc.snapshot()['9.2'];
+    if (!obs) throw new Error('expected 9.2');
+    expect(obs.unmapped).toEqual([]); // no decoder → cannot be "unmapped"
+    expect(obs.enum).toBeUndefined();
+  });
+
+  it('a bare accumulator (no decoders) records values but never flags unmapped', () => {
+    const acc = new PropertyAccumulator();
+    acc.record(2, 1, 250, 1000); // bogus, but no decoder table injected
+    const obs = acc.snapshot()['2.1'];
+    if (!obs) throw new Error('expected 2.1');
+    expect(obs.values).toEqual([250]);
+    expect(obs.unmapped).toEqual([]);
+    expect(obs.enum).toBeUndefined();
+  });
+
+  it('coerces non-number raw values to their JSON scalar and never flags them unmapped', () => {
+    const acc = new PropertyAccumulator(vacuumDecoders());
+    acc.record(4, 18, '13,14', 1000); // FAULTS_STR — a string mirror
+    const obs = acc.snapshot()['4.18'];
+    if (!obs) throw new Error('expected 4.18');
+    expect(obs.values).toEqual(['13,14']);
+    expect(obs.unmapped).toEqual([]);
+  });
+
+  it('records non-scalar values as a count only (no value entry, no unmapped)', () => {
+    const acc = new PropertyAccumulator(vacuumDecoders());
+    acc.record(2, 1, { nested: true }, 1000);
+    const obs = acc.snapshot()['2.1'];
+    if (!obs) throw new Error('expected 2.1');
+    expect(obs.count).toBe(1);
+    expect(obs.values).toEqual([]);
+    expect(obs.unmapped).toEqual([]);
   });
 });
