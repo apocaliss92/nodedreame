@@ -9,6 +9,7 @@ import type {
 import {
   callAction as defaultCallAction,
   getProperties as defaultGetProperties,
+  getCachedProperties as defaultGetCachedProperties,
   setProperties as defaultSetProperties,
   type CommonInput,
 } from '../cloud/commands.js';
@@ -46,6 +47,8 @@ export interface PushLike {
 export interface BaseDeviceDeps {
   createPush(device: DreameDevice, session: DreameSession, region: DreameRegion): PushLike;
   getProperties(base: CommonInput, props: MiotProp[]): Promise<PropertyResult[]>;
+  /** Read the cloud-cached (shadow) values WITHOUT waking the device. */
+  getCachedProperties(base: CommonInput, props: MiotProp[]): Promise<PropertyResult[]>;
   setProperties(base: CommonInput, writes: PropertyWrite[]): Promise<PropertyResult[]>;
   callAction(
     base: CommonInput,
@@ -58,6 +61,7 @@ export function defaultBaseDeviceDeps(): BaseDeviceDeps {
   return {
     createPush: (device, session, region) => new DreamePush({ device, session, region }),
     getProperties: (base, props) => defaultGetProperties(base, props),
+    getCachedProperties: (base, props) => defaultGetCachedProperties(base, props),
     setProperties: (base, writes) => defaultSetProperties(base, writes),
     callAction: (base, action) => defaultCallAction(base, action),
   };
@@ -194,6 +198,25 @@ export class BaseDevice<
   async refreshProperties(props: MiotProp[]): Promise<PropertyResult[]> {
     this.#assertOpen();
     const results = await this.#deps.getProperties(this.#base(), props);
+    this.#seedFromResults(results);
+    return results;
+  }
+
+  /**
+   * Read the CLOUD-CACHED (shadow) values of `props` WITHOUT waking the device,
+   * update the cache, and emit `propertyChanged`/`stateChanged` just like
+   * {@link refreshProperties} — but sourced from the cloud shadow endpoint, so
+   * it works for standby/offline robots (and never surfaces a false 80001).
+   */
+  async refreshCachedProperties(props: MiotProp[]): Promise<PropertyResult[]> {
+    this.#assertOpen();
+    const results = await this.#deps.getCachedProperties(this.#base(), props);
+    this.#seedFromResults(results);
+    return results;
+  }
+
+  /** Mirror a PropertyResult[] into the cache + emit the change events. */
+  #seedFromResults(results: PropertyResult[]): void {
     const changes: PropertyChange[] = [];
     for (const r of results) {
       if (typeof r.siid === 'number' && typeof r.piid === 'number') {
@@ -203,7 +226,6 @@ export class BaseDevice<
     if (changes.length > 0) {
       this.#onProperties(changes);
     }
-    return results;
   }
 
   /** Write a property to the device. */

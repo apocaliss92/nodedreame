@@ -3,6 +3,7 @@ import {
   OAuthTokenResponseSchema,
   DeviceListResponseSchema,
   SendCommandResponseSchema,
+  CachedPropsResponseSchema,
   RawMqttEventSchema,
 } from '../../src/transport/schemas.js';
 
@@ -45,6 +46,29 @@ describe('SendCommandResponseSchema', () => {
       data: { result: [{ siid: 2, piid: 1, value: 13, code: 0 }] },
     });
     expect(Array.isArray(r.data?.result)).toBe(true);
+  });
+});
+
+describe('CachedPropsResponseSchema', () => {
+  it('parses a cloud-shadow response with data[] entries and unknown values', () => {
+    const r = CachedPropsResponseSchema.parse({
+      code: 0,
+      msg: '操作成功',
+      data: [
+        { key: '2.1', value: '13', updateDate: 1780664532160 },
+        { key: '3.1', value: 100 },
+        { key: '2.2', value: true, extra: 'x' },
+      ],
+    });
+    expect(r.code).toBe(0);
+    expect(r.data?.[0]?.key).toBe('2.1');
+    expect(r.data?.[0]?.value).toBe('13');
+    expect(r.data?.[0]?.updateDate).toBe(1780664532160);
+  });
+  it('accepts an error response without data', () => {
+    const r = CachedPropsResponseSchema.parse({ code: 10001, msg: 'bad keys' });
+    expect(r.code).toBe(10001);
+    expect(r.data).toBeUndefined();
   });
 });
 

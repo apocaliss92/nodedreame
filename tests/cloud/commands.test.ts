@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   sendCommand,
   getProperties,
+  getCachedProperties,
   setProperties,
   callAction,
   getBatchDeviceDatas,
@@ -120,6 +121,55 @@ describe('result extraction', () => {
     expect(res[0]?.value).toBe(13);
     expect(res[0]?.extra).toBe('x');
     expect(res[1]?.code).toBe(0);
+  });
+});
+
+describe('getCachedProperties (cloud shadow / iotstatus/props)', () => {
+  it('POSTs to /dreame-user-iot/iotstatus/props with {did, keys} as a COMMA STRING', async () => {
+    const fetchImpl = vi.fn<FetchImpl>(async () =>
+      ok({ code: 0, msg: '操作成功', data: [{ key: '2.1', value: '13', updateDate: 1 }] }),
+    );
+    await getCachedProperties({ session, region: 'eu', did: 'DID7', fetchImpl }, [
+      { siid: 2, piid: 1 },
+      { siid: 3, piid: 1 },
+      { siid: 3, piid: 2 },
+    ]);
+    const [url] = fetchImpl.mock.calls[0]!;
+    expect(url).toBe('https://eu.iot.dreame.tech:13267/dreame-user-iot/iotstatus/props');
+    const body = captureBody(fetchImpl);
+    expect(body.did).toBe('DID7');
+    // keys MUST be the comma-joined STRING (array → 10001; empty → 10007).
+    expect(body.keys).toBe('2.1,3.1,3.2');
+    expect(typeof body.keys).toBe('string');
+  });
+
+  it('parses data[] into PropertyResult[], coercing string values to number/boolean', async () => {
+    const fetchImpl = vi.fn<FetchImpl>(async () =>
+      ok({
+        code: 0,
+        data: [
+          { key: '3.1', value: '100', updateDate: 1780664532160 },
+          { key: '2.2', value: 'true' },
+          { key: '4.18', value: '18,107' },
+        ],
+      }),
+    );
+    const res = await getCachedProperties({ session, region: 'eu', did: 'D', fetchImpl }, [
+      { siid: 3, piid: 1 },
+    ]);
+    expect(res[0]).toMatchObject({ siid: 3, piid: 1, value: 100 });
+    // updateDate is surfaced for cache-age reporting.
+    expect(res[0]?.updateDate).toBe(1780664532160);
+    expect(res[1]).toMatchObject({ siid: 2, piid: 2, value: true });
+    // non-numeric, non-boolean string stays a string (e.g. fault list).
+    expect(res[2]).toMatchObject({ siid: 4, piid: 18, value: '18,107' });
+  });
+
+  it('throws DreameApiError when code !== 0 (never 80001 for idle devices)', async () => {
+    const fetchImpl = vi.fn<FetchImpl>(async () => ok({ code: 10001, msg: 'bad keys' }));
+    await expect(
+      getCachedProperties({ session, region: 'eu', did: 'D', fetchImpl }, [{ siid: 2, piid: 1 }]),
+    ).rejects.toBeInstanceOf(DreameApiError);
   });
 });
 

@@ -37,6 +37,7 @@ function depsReturning(results: PropertyResult[]): BaseDeviceDeps {
   return {
     createPush: () => fakePush(),
     getProperties: () => Promise.resolve(results),
+    getCachedProperties: () => Promise.resolve(results),
     setProperties: () => Promise.resolve([]),
     callAction: () => Promise.resolve({}),
   };

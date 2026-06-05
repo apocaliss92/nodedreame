@@ -63,5 +63,11 @@ export interface PropertyResult {
   piid?: number | undefined;
   value?: unknown;
   code?: number | undefined;
+  /**
+   * Epoch-ms the cloud last observed this value. Only populated by the
+   * cloud-shadow read (`getCachedProperties`); absent on live `get_properties`.
+   * Surfaced so callers can report the cache age of a standby device.
+   */
+  updateDate?: number | undefined;
   [key: string]: unknown;
 }

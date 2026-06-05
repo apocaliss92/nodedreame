@@ -44,20 +44,25 @@ function makeDeps(overrides: Partial<BaseDeviceDeps> = {}): {
   deps: BaseDeviceDeps;
   push: FakePush;
   getProperties: ReturnType<typeof vi.fn>;
+  getCachedProperties: ReturnType<typeof vi.fn>;
   setProperties: ReturnType<typeof vi.fn>;
   callAction: ReturnType<typeof vi.fn>;
 } {
   const push = new FakePush();
   const getProperties = vi.fn(overrides.getProperties ?? (async () => [] as PropertyResult[]));
+  const getCachedProperties = vi.fn(
+    overrides.getCachedProperties ?? (async () => [] as PropertyResult[]),
+  );
   const setProperties = vi.fn(overrides.setProperties ?? (async () => [] as PropertyResult[]));
   const callAction = vi.fn(overrides.callAction ?? (async () => ({ ok: true })));
   const deps: BaseDeviceDeps = {
     createPush: overrides.createPush ?? (() => push),
     getProperties,
+    getCachedProperties,
     setProperties,
     callAction,
   };
-  return { deps, push, getProperties, setProperties, callAction };
+  return { deps, push, getProperties, getCachedProperties, setProperties, callAction };
 }
 
 describe('BaseDevice — construction & reads', () => {
@@ -121,6 +126,49 @@ describe('BaseDevice — construction & reads', () => {
     const res = await d.refreshProperties([{ siid: 3, piid: 1 }]);
     expect(res[0]?.value).toBe(55);
     expect(d.getProperty(3, 1)?.value).toBe(55);
+  });
+
+  it('refreshCachedProperties reads the cloud shadow, seeds the cache, and emits', async () => {
+    const { deps, getCachedProperties } = makeDeps({
+      getCachedProperties: vi.fn(
+        async () => [{ siid: 3, piid: 1, value: 100 }] as PropertyResult[],
+      ),
+    });
+    const d = new BaseDevice({
+      device,
+      region: 'eu',
+      sessionRef: () => session('T'),
+      deps,
+      fetchInitialValues: false,
+    });
+    let aggregate: number | null = null;
+    const perProp: number[] = [];
+    d.on('propertyChanged', (e) => perProp.push(e.siid));
+    d.on('stateChanged', (e) => {
+      aggregate = e.changes.length;
+    });
+    const res = await d.refreshCachedProperties([{ siid: 3, piid: 1 }]);
+    expect(getCachedProperties).toHaveBeenCalledTimes(1);
+    expect(res[0]?.value).toBe(100);
+    expect(d.getProperty(3, 1)?.value).toBe(100);
+    expect(perProp).toEqual([3]);
+    expect(aggregate).toBe(1);
+  });
+
+  it('refreshCachedProperties after close() throws a clear error', async () => {
+    const { deps } = makeDeps();
+    const d = new BaseDevice({
+      device,
+      region: 'eu',
+      sessionRef: () => session('T'),
+      deps,
+      fetchInitialValues: false,
+    });
+    await d.start();
+    await d.close();
+    await expect(d.refreshCachedProperties([{ siid: 2, piid: 1 }])).rejects.toThrow(
+      DreameTransportError,
+    );
   });
 
   it('setProperty delegates with the device did and the CURRENT session token', async () => {

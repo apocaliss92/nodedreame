@@ -210,6 +210,17 @@ export class MowerDevice extends BaseDevice {
     return this.#sendTask(buildSpotPayload(spotAreaIds.map((s) => Math.trunc(s))));
   }
 
+  /**
+   * Seed the cache from the CLOUD SHADOW (last-known values) WITHOUT waking the
+   * mower — reads {@link MowerDevice.DEFAULT_PROPS} from the cloud-cached
+   * endpoint. After it resolves, every typed getter (status/battery/charging/
+   * coverage/task/controlAction…) reflects the cached values, so a docked/
+   * standby mower reports its state exactly as the Dreamehome app does.
+   */
+  async refreshFromCache(): Promise<void> {
+    await this.refreshCachedProperties([...MowerDevice.DEFAULT_PROPS]);
+  }
+
   // -- maps ---------------------------------------------------------------
   /** The most-recently-parsed map, or `null` until {@link getMap} succeeds. */
   get lastMap(): MowerMap | null {

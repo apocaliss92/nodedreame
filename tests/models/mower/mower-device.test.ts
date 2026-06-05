@@ -28,10 +28,48 @@ function depsReturning(results: PropertyResult[]): BaseDeviceDeps {
   return {
     createPush: () => fakePush(),
     getProperties: () => Promise.resolve(results),
+    getCachedProperties: () => Promise.resolve(results),
     setProperties: () => Promise.resolve([]),
     callAction: () => Promise.resolve({}),
   };
 }
+
+describe('MowerDevice.refreshFromCache', () => {
+  it('seeds the cache from the cloud shadow so typed getters read cached values', async () => {
+    const cached: PropertyResult[] = [
+      { siid: 2, piid: 1, value: 1, code: 0 }, // STATUS = Mowing
+      { siid: 3, piid: 1, value: 64, code: 0 }, // battery
+      { siid: 3, piid: 2, value: 1, code: 0 }, // charging = Charging
+    ];
+    const calls: ('live' | 'cache')[] = [];
+    const deps: BaseDeviceDeps = {
+      createPush: () => fakePush(),
+      getProperties: () => {
+        calls.push('live');
+        return Promise.resolve([] as PropertyResult[]);
+      },
+      getCachedProperties: () => {
+        calls.push('cache');
+        return Promise.resolve(cached);
+      },
+      setProperties: () => Promise.resolve([]),
+      callAction: () => Promise.resolve({}),
+    };
+    const m = new MowerDevice({
+      device: fakeDevice(),
+      region: 'eu',
+      sessionRef: fakeSession,
+      deps,
+      fetchInitialValues: false,
+    });
+    await m.start();
+    await m.refreshFromCache();
+    expect(calls).toEqual(['cache']);
+    expect(m.status).toBe(MowerStatus.Mowing);
+    expect(m.battery).toBe(64);
+    expect(m.charging).toBe(MowerChargingStatus.Charging);
+  });
+});
 
 describe('MowerDevice is a BaseDevice', () => {
   it('extends BaseDevice', () => {

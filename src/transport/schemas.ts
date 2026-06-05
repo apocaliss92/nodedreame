@@ -70,6 +70,36 @@ export const PropertyResultSchema = z
   })
   .passthrough();
 
+/**
+ * Single cloud-shadow entry from `dreame-user-iot/iotstatus/props`. The cloud
+ * returns the last-known value as a STRING (e.g. `"100"`, `"true"`); the value
+ * is widened to `unknown` and coerced by the command layer. `updateDate` is the
+ * epoch-ms the cloud last saw that value (used for cache-age reporting).
+ */
+export const CachedPropEntrySchema = z
+  .object({
+    key: z.string(),
+    value: z.unknown().optional(),
+    updateDate: z.number().optional(),
+  })
+  .passthrough();
+export type CachedPropEntry = z.infer<typeof CachedPropEntrySchema>;
+
+/**
+ * Cloud-shadow read response (`iotstatus/props`). `data` is an ARRAY of
+ * per-property entries (NOT the nested `data.result` shape `sendCommand`
+ * returns). Permissive: missing props are simply absent; on an error code
+ * `data` may be absent entirely.
+ */
+export const CachedPropsResponseSchema = z
+  .object({
+    code: z.number().optional(),
+    msg: z.string().optional(),
+    data: z.array(CachedPropEntrySchema).optional(),
+  })
+  .passthrough();
+export type CachedPropsResponse = z.infer<typeof CachedPropsResponseSchema>;
+
 export const SendCommandResponseSchema = z
   .object({
     code: z.number().optional(),

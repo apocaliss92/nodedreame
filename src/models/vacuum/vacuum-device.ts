@@ -340,6 +340,17 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
     return this.#startCustom(CUSTOM_CLEAN_MODE.SPOT, { points });
   }
 
+  /**
+   * Seed the cache from the CLOUD SHADOW (last-known values) WITHOUT waking the
+   * robot — reads {@link VacuumDevice.DEFAULT_PROPS} from the cloud-cached
+   * endpoint. After it resolves, every typed getter (status/battery/suction/
+   * water/cleaningMode/error/charging…) reflects the cached values, so a
+   * standby/docked vacuum reports its state exactly as the Dreamehome app does.
+   */
+  async refreshFromCache(): Promise<void> {
+    await this.refreshCachedProperties([...VacuumDevice.DEFAULT_PROPS]);
+  }
+
   // -- maps ---------------------------------------------------------------
   /** The most-recently-decoded map, or `null` until {@link getMap} succeeds. */
   get lastMap(): VacuumMap | null {

@@ -45,6 +45,7 @@ function fakeBaseDeviceDeps() {
       async refreshSession() {},
     }),
     getProperties: vi.fn(async () => []),
+    getCachedProperties: vi.fn(async () => []),
     setProperties: vi.fn(async () => []),
     callAction: vi.fn(async () => null),
   };
@@ -90,6 +91,7 @@ describe('Nodreame — refresh propagation & teardown', () => {
           },
         }),
         getProperties: vi.fn(async () => []),
+        getCachedProperties: vi.fn(async () => []),
         setProperties: vi.fn(async () => []),
         callAction: vi.fn(async () => null),
       };
@@ -157,6 +159,7 @@ describe('Nodreame — refresh propagation & teardown', () => {
           async refreshSession() {},
         }),
         getProperties: vi.fn(async () => []),
+        getCachedProperties: vi.fn(async () => []),
         setProperties: vi.fn(async () => []),
         callAction: vi.fn(async () => null),
       };
@@ -195,6 +198,7 @@ describe('Nodreame.discoverDevices — handle lifecycle (FIX 1)', () => {
           async refreshSession() {},
         }),
         getProperties: vi.fn(async () => []),
+        getCachedProperties: vi.fn(async () => []),
         setProperties: vi.fn(async () => []),
         callAction: vi.fn(async () => null),
       };
@@ -287,6 +291,7 @@ describe('Nodreame.ensureSession — refresh-failure fallback (FIX 3)', () => {
           },
         }),
         getProperties: vi.fn(async () => []),
+        getCachedProperties: vi.fn(async () => []),
         setProperties: vi.fn(async () => []),
         callAction: vi.fn(async () => null),
       };
@@ -399,6 +404,7 @@ describe('Nodreame.discoverDevices — picks the right handle class per model', 
     return {
       createPush: () => offlinePush(),
       getProperties: () => Promise.resolve([]),
+      getCachedProperties: () => Promise.resolve([]),
       setProperties: () => Promise.resolve([]),
       callAction: () => Promise.resolve(null),
     };

@@ -48,10 +48,51 @@ function depsReturning(results: PropertyResult[]): BaseDeviceDeps {
   return {
     createPush: () => fakePush(),
     getProperties: () => Promise.resolve(results),
+    getCachedProperties: () => Promise.resolve(results),
     setProperties: () => Promise.resolve([]),
     callAction: () => Promise.resolve({}),
   };
 }
+
+describe('VacuumDevice.refreshFromCache', () => {
+  it('seeds the cache from the cloud shadow so typed getters read cached values', async () => {
+    const cached: PropertyResult[] = [
+      { siid: 2, piid: 1, value: 6, code: 0 }, // STATE = Charging
+      { siid: 3, piid: 1, value: 100, code: 0 }, // battery
+      { siid: 4, piid: 4, value: 2, code: 0 }, // suction = Intense
+      { siid: 4, piid: 5, value: 1, code: 0 }, // water = Low
+    ];
+    const calls: ('live' | 'cache')[] = [];
+    const deps: BaseDeviceDeps = {
+      createPush: () => fakePush(),
+      getProperties: () => {
+        calls.push('live');
+        return Promise.resolve([] as PropertyResult[]);
+      },
+      getCachedProperties: () => {
+        calls.push('cache');
+        return Promise.resolve(cached);
+      },
+      setProperties: () => Promise.resolve([]),
+      callAction: () => Promise.resolve({}),
+    };
+    const v = new VacuumDevice({
+      device: fakeDevice(),
+      region: 'eu',
+      sessionRef: fakeSession,
+      deps,
+      fetchInitialValues: false,
+    });
+    await v.start();
+    await v.refreshFromCache();
+    // Only the cached endpoint was hit (never the waking get_properties path).
+    expect(calls).toEqual(['cache']);
+    expect(v.status).toBe(MiotState.Charging);
+    expect(v.battery).toBe(100);
+    expect(v.suction).toBe(SuctionLevel.Intense);
+    expect(v.water).toBe(WaterVolume.Low);
+  });
+});
 
 describe('VacuumDevice state getters', () => {
   it('decodes seeded properties into typed state', async () => {

@@ -29,6 +29,7 @@ function build(model?: string): Harness {
   const deps: BaseDeviceDeps = {
     createPush: () => push(),
     getProperties: () => Promise.resolve([]),
+    getCachedProperties: () => Promise.resolve([]),
     setProperties: () => Promise.resolve([]),
     callAction: (_base, action) => {
       actions.push(action);
