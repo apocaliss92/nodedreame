@@ -111,10 +111,38 @@ describe('mower control status (2:56)', () => {
     });
   });
 
-  it('rejects malformed / unknown-code payloads with null', () => {
+  it('rejects malformed payloads (non-object / no status / bad pair) with null', () => {
     expect(parseControlStatus(null)).toBeNull();
     expect(parseControlStatus({})).toBeNull();
-    expect(parseControlStatus({ status: [[1, 99]] })).toBeNull(); // 99 not a known code
+    expect(parseControlStatus({ status: 5 })).toBeNull(); // status not an array
+    expect(parseControlStatus({ status: [[1]] })).toBeNull(); // pair too short
+    expect(parseControlStatus({ status: [['x', 0]] })).toBeNull(); // non-numeric pair
+  });
+
+  it('tolerates unknown control codes (surfaces the zone with action null)', () => {
+    // 99 is OUTSIDE the known set; the zone is retained, not dropped.
+    const r = parseControlStatus({
+      status: [
+        [3, 0],
+        [4, 99],
+      ],
+    });
+    expect(r).not.toBeNull();
+    expect(r?.zones).toEqual([
+      [3, 0],
+      [4, 99],
+    ]); // unknown zone retained alongside the known one
+    // primary still resolves from the known actively-mowing entry (code 0)
+    expect(r?.action).toBe(MowerControlAction.Continue);
+    expect(r?.statusCode).toBe(0);
+  });
+
+  it('returns action:null when the primary entry has an unknown code', () => {
+    const r = parseControlStatus({ status: [[4, 99]] });
+    expect(r).not.toBeNull();
+    expect(r?.zones).toEqual([[4, 99]]);
+    expect(r?.action).toBeNull();
+    expect(r?.statusCode).toBe(99);
   });
 
   it('controlActionFor maps known codes, null otherwise', () => {

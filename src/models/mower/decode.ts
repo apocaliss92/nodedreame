@@ -95,8 +95,11 @@ export interface MowerControlState {
 /**
  * Parse MOWER_CONTROL_STATUS (2:56). `status` is `[[zone_id, code], ...]`.
  * Primary action = the actively-mowing zone (code 0), else the first entry.
- * Empty array -> null action. Returns null on any unknown code / malformed
- * shape (matching the donor's reject-on-unknown behaviour). No cast.
+ * Empty array -> null action. Warn-and-tolerate: an UNKNOWN code does NOT drop
+ * the whole structure — the zone is surfaced as-is and its `action` resolves to
+ * null (only the primary's action goes null when the primary itself is unknown).
+ * Still returns null on a malformed PAIR shape (non-array / <2 / non-numeric).
+ * No cast.
  */
 export function parseControlStatus(value: unknown): MowerControlState | null {
   if (!isRecord(value)) {
@@ -118,9 +121,6 @@ export function parseControlStatus(value: unknown): MowerControlState | null {
     const zone = pair[0];
     const code = pair[1];
     if (zone === undefined || code === undefined) {
-      return null;
-    }
-    if (controlActionFor(code) === null) {
       return null;
     }
     zones.push([zone, code]);
