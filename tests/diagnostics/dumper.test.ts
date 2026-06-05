@@ -327,3 +327,54 @@ describe('Dumper lifecycle', () => {
   });
 });
 
+describe('Dumper export', () => {
+  it('exports a zod-valid dump after start→observe→stop', async () => {
+    const dev = new FakeDevice();
+    const dumper = createDumper(dev, { refreshIntervalMs: 0 });
+    await dumper.start();
+    dev.emitProperty(2, 1, 6); // MiotState.Charging
+    dev.emitProperty(2, 1, 250); // bogus → unmapped
+    await dumper.stop();
+    const dump = dumper.export();
+    expect(DeviceDumpSchema.safeParse(dump).success).toBe(true);
+    expect(dump.library).toBe('nodedreame');
+    expect(dump.device.model).toBe('dreame.vacuum.r2532a');
+    const obs = dump.observations.properties['2.1'];
+    if (!obs) throw new Error('expected 2.1');
+    expect(obs.values).toEqual([6, 250]);
+    expect(obs.unmapped).toEqual([250]);
+    expect(obs.enum).toBe('MiotState');
+    expect(dump.catalog.commands?.map((c) => c.name) ?? []).toContain('START');
+  });
+
+  it('anonymizes a leaked custom device name / secret in the dump', async () => {
+    const dev = new FakeDevice();
+    dev.model = 'dreame.vacuum.r2532a';
+    const dumper = createDumper(dev, { captureRawFrames: true, refreshIntervalMs: 0 });
+    await dumper.start();
+    // a raw event whose arguments carry a leaked customName + did
+    dev.emitEvent(4, 1, [{ customName: 'Gianluca', did: 'SECRET' }]);
+    await dumper.stop();
+    const json = dumper.exportJson();
+    expect(json).not.toContain('Gianluca');
+    expect(json).not.toContain('SECRET');
+    expect(json).toContain('[redacted]');
+  });
+
+  it('exportJson is deterministic for the same observations', async () => {
+    const build = async (): Promise<string> => {
+      const dev = new FakeDevice();
+      const d = createDumper(dev, { refreshIntervalMs: 0 });
+      await d.start();
+      dev.emitProperty(2, 1, 6);
+      await d.stop();
+      return d.exportJson();
+    };
+    const a = await build();
+    const b = await build();
+    // meta timestamps differ; strip them before comparing structure.
+    const strip = (s: string): string =>
+      s.replace(/"(startedAt|durationMs|generatedAt|firstSeen|lastSeen|at)":\s*\d+/g, '"$1":0');
+    expect(strip(a)).toBe(strip(b));
+  });
+});
