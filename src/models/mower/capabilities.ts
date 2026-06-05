@@ -24,6 +24,8 @@ export interface MowerCapabilities {
   canResume: boolean;
   /** Has a scheduling task descriptor (2:50). */
   canSchedule: boolean;
+  /** Fetches/parses the batched vector map (MAP.* JSON → zones/paths/contours). */
+  canMap: boolean;
 }
 
 const FALLBACK: Omit<MowerCapabilities, 'model'> = {
@@ -34,6 +36,9 @@ const FALLBACK: Omit<MowerCapabilities, 'model'> = {
   canMowAllArea: false,
   canResume: true,
   canSchedule: true,
+  // Vector-map parsing is model-agnostic, but an unknown model leaves it false
+  // until its firmware is verified to expose the batch device-data surface.
+  canMap: false,
 };
 
 /** A1-family body (ASSUMED from the donor command surface; not live-verified). */
@@ -44,6 +49,7 @@ const A1_FAMILY: Omit<MowerCapabilities, 'model' | 'verified'> = {
   canMowAllArea: true,
   canResume: true,
   canSchedule: true,
+  canMap: true,
 };
 
 function deepFreeze<T>(obj: T): T {

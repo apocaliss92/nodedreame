@@ -147,6 +147,42 @@ export async function callAction(
   return res.data?.result ?? res.result ?? res;
 }
 
+/**
+ * Fetch batched device data (the mower's vector map: `MAP.*` / `M_PATH.*`
+ * chunk keys) for a set of property groups.
+ *
+ * ⚠️ ENDPOINT GAP — LIVE PATH UNRECOVERED. The concrete batch-fetch endpoint
+ * path is OBFUSCATED in the donor (`antondaubert/dreame-mower` builds it from
+ * an encoded `_api_strings` table — entries `[23]/[26]/[44]` — that we have not
+ * decoded). The donor's `cloud_base` resolves to a `/dreame-iot-com-<prefix>/…`
+ * route we cannot reproduce byte-exact without that table, and we will NOT
+ * invent a wrong URL. Recovering the real path is a documented follow-up; until
+ * then this function will THROW if invoked against the live cloud.
+ *
+ * The map PARSER (`parseBatchMapData`) is the shipped deliverable and is fully
+ * unit-tested with synthetic batch fixtures. `MowerDevice.getMap` consumes an
+ * INJECTED {@link BatchDeviceDataFetcher} seam, so tests (and any caller that
+ * already knows the path) drive it with no dependency on this stub.
+ *
+ * @throws DreameApiError always — the endpoint path is not yet recovered.
+ */
+export async function getBatchDeviceDatas(
+  base: CommonInput,
+  props: string[],
+): Promise<Record<string, unknown>> {
+  // Deliberately unreachable in production until the endpoint is recovered. The
+  // request is described in the error so the gap is self-documenting at runtime.
+  return Promise.reject(
+    new DreameApiError(
+      `getBatchDeviceDatas(did=${base.did}, props=${JSON.stringify(props)}): live ` +
+        'batch-fetch endpoint path is not yet recovered (obfuscated in the donor). ' +
+        'Inject a BatchDeviceDataFetcher into MowerDevice instead, or supply the ' +
+        'resolved path once known.',
+      0,
+    ),
+  );
+}
+
 function extractResultArray(res: SendCommandResponse, context: string): PropertyResult[] {
   const raw = Array.isArray(res.data?.result)
     ? res.data.result

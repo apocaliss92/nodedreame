@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { sendCommand, getProperties, setProperties, callAction } from '../../src/cloud/commands.js';
+import {
+  sendCommand,
+  getProperties,
+  setProperties,
+  callAction,
+  getBatchDeviceDatas,
+} from '../../src/cloud/commands.js';
 import { DreameApiError } from '../../src/transport/errors.js';
 import type { DreameSession } from '../../src/cloud/types.js';
 import type { FetchImpl } from '../../src/transport/fetch.js';
@@ -114,5 +120,18 @@ describe('result extraction', () => {
     expect(res[0]?.value).toBe(13);
     expect(res[0]?.extra).toBe('x');
     expect(res[1]?.code).toBe(0);
+  });
+});
+
+describe('getBatchDeviceDatas (endpoint gap)', () => {
+  it('rejects with DreameApiError describing the unrecovered live endpoint', async () => {
+    // The live batch-fetch path is obfuscated in the donor and not yet
+    // recovered; the function must fail loudly (callers inject a fetcher).
+    await expect(
+      getBatchDeviceDatas({ session, region: 'eu', did: 'DID9' }, ['MAP', 'M_PATH']),
+    ).rejects.toBeInstanceOf(DreameApiError);
+    await expect(
+      getBatchDeviceDatas({ session, region: 'eu', did: 'DID9' }, ['MAP']),
+    ).rejects.toThrow(/not yet recovered/);
   });
 });

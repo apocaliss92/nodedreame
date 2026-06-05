@@ -23,6 +23,34 @@ import {
   type MowerCapabilities,
 } from './capabilities.js';
 import { DreameError } from '../../transport/errors.js';
+import {
+  parseBatchMapData,
+  renderMowerSvg,
+  type MowerMap,
+  type RenderMowerSvgOptions,
+} from './map/index.js';
+
+/**
+ * Injectable batch-fetch seam. Given a device id + the batch property groups
+ * (e.g. `['MAP','M_PATH']`), resolves the raw `{ 'MAP.0': …, 'MAP.info': … }`
+ * chunk dict the firmware returns. The default wires `getBatchDeviceDatas` from
+ * the cloud layer — but its live endpoint path is NOT yet recovered (see
+ * `cloud/commands.ts`), so production callers MUST inject a working fetcher.
+ * Tests inject a fake with no cast.
+ */
+export type BatchDeviceDataFetcher = (
+  did: string,
+  props: string[],
+) => Promise<Record<string, unknown>>;
+
+/** Default batch property groups the firmware exposes the vector map under. */
+export const DEFAULT_MAP_PROPS: readonly string[] = ['MAP', 'M_PATH'];
+
+/** Mower-specific construction input: adds the injectable batch-fetch seam. */
+export interface MowerDeviceInput extends BaseDeviceInput {
+  /** Inject the batched device-data fetcher (maps). Tests pass a fake. */
+  getBatchDeviceDatas?: BatchDeviceDataFetcher;
+}
 
 const STATUS = enumLookup<MowerStatus>(
   Object.values(MowerStatus).filter((v): v is MowerStatus => typeof v === 'number'),
@@ -34,8 +62,10 @@ const CHARGING = enumLookup<MowerChargingStatus>(
 /** A typed Dreame-mower handle (state + capability-gated commands). */
 export class MowerDevice extends BaseDevice {
   readonly #caps: MowerCapabilities;
+  readonly #fetchBatch: BatchDeviceDataFetcher | null;
+  #lastMap: MowerMap | null = null;
 
-  constructor(input: BaseDeviceInput) {
+  constructor(input: MowerDeviceInput) {
     super({
       ...input,
       // Inject the mower resolver so the inherited generic `capabilities` getter
@@ -43,6 +73,7 @@ export class MowerDevice extends BaseDevice {
       capabilities: input.capabilities ?? new MowerCapabilityResolver().resolve(input.device.model),
     });
     this.#caps = getMowerCapabilities(input.device.model);
+    this.#fetchBatch = input.getBatchDeviceDatas ?? null;
   }
 
   /** Rich, mower-specific capability record. */
@@ -177,6 +208,46 @@ export class MowerDevice extends BaseDevice {
       throw new RangeError('startMowingSpots: spotAreaIds must not be empty');
     }
     return this.#sendTask(buildSpotPayload(spotAreaIds.map((s) => Math.trunc(s))));
+  }
+
+  // -- maps ---------------------------------------------------------------
+  /** The most-recently-parsed map, or `null` until {@link getMap} succeeds. */
+  get lastMap(): MowerMap | null {
+    return this.#lastMap;
+  }
+
+  /**
+   * Fetch the batched vector-map data, parse it into a {@link MowerMap}, cache
+   * it as {@link lastMap}, and return it. Capability-gated on `canMap`.
+   *
+   * The batch fetcher is injected at construction (the live cloud endpoint path
+   * is not yet recovered — see `cloud/commands.ts`). Rejects with
+   * {@link DreameError} if no fetcher was injected or the batch yields no
+   * parseable map (asleep mower / empty data).
+   */
+  async getMap(props: readonly string[] = DEFAULT_MAP_PROPS): Promise<MowerMap> {
+    this.#requireCap(this.#caps.canMap, 'getMap', 'map parsing');
+    if (!this.#fetchBatch) {
+      throw new DreameError(
+        'getMap: no batch device-data fetcher injected (live endpoint unrecovered)',
+      );
+    }
+    const batch = await this.#fetchBatch(this.deviceId, [...props]);
+    const map = parseBatchMapData(batch);
+    if (!map) {
+      throw new DreameError('getMap: batch device-data contained no parseable map');
+    }
+    this.#lastMap = map;
+    return map;
+  }
+
+  /**
+   * Render the current map to a deterministic SVG string. Uses {@link lastMap}
+   * when present, otherwise fetches first via {@link getMap}.
+   */
+  async mapSvg(opts?: RenderMowerSvgOptions): Promise<string> {
+    const map = this.#lastMap ?? (await this.getMap());
+    return renderMowerSvg(map, opts ?? {});
   }
 
   /** Props worth seeding on start() / polling — exported for the facade. */
