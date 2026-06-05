@@ -1,6 +1,7 @@
 // Public API surface of nodedreame.
-// Only the facade + its public types are exported here; transport, cloud and
-// model internals stay private to keep the published surface small and stable.
+// Phase 1 exports only the error classes and core domain types; transport,
+// cloud and model internals stay private to keep the published surface small
+// and stable. The high-level facade is added in Phase 2.
 
 export { LIBRARY_NAME } from './support/version.js';
 
