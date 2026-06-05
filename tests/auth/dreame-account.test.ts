@@ -62,6 +62,29 @@ describe('login', () => {
     ).rejects.toBeInstanceOf(DreameAuthError);
   });
 
+  it('does not leak the refresh_token when access_token is missing', async () => {
+    const fetchImpl = vi.fn<FetchImpl>(
+      async () =>
+        new Response(
+          JSON.stringify({
+            refresh_token: 'SUPER_SECRET_REFRESH_TOKEN',
+            uid: 4242,
+            code: 401,
+          }),
+          { status: 200 },
+        ),
+    );
+    let caught: unknown;
+    try {
+      await login({ email: 'a@b.com', password: 'x', region: 'eu', fetchImpl });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(DreameAuthError);
+    const message = (caught as DreameAuthError).message;
+    expect(message).not.toContain('SUPER_SECRET_REFRESH_TOKEN');
+  });
+
   it('throws DreameAuthError when uid is missing', async () => {
     const fetchImpl = vi.fn<FetchImpl>(async () => tokenResponse({ uid: undefined }));
     await expect(

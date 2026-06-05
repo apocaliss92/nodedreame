@@ -89,8 +89,10 @@ async function postForToken(ctx: RequestContext, body: URLSearchParams): Promise
     );
   }
   if (!data.access_token) {
+    // Redacted: never stringify the full payload — it carries refresh_token and
+    // other secrets. Surface only non-secret diagnostic fields.
     throw new DreameAuthError(
-      `auth response missing access_token: ${JSON.stringify(data).slice(0, 200)}`,
+      `auth response missing access_token: uid=${data.uid ?? '?'} error=${data.error ?? '?'} code=${data.code ?? '?'}`,
     );
   }
 
