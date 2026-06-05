@@ -55,14 +55,11 @@ describe('public API surface (P3)', () => {
     expect(typeof api.VACUUM_MODEL_CAPABILITIES).toBe('object');
   });
 
-  it('exports the device-type factory', () => {
-    expect(typeof api.deviceClassFor).toBe('function');
-  });
-
-  it('does NOT leak vacuum internals (property maps / decode helpers stay private)', () => {
+  it('does NOT leak vacuum internals (property maps / decode helpers / factory stay private)', () => {
     expect('VACUUM_PROP' in api).toBe(false);
     expect('VACUUM_ACTION' in api).toBe(false);
     expect('parseFaultList' in api).toBe(false);
     expect('enumMembers' in api).toBe(false);
+    expect('deviceClassFor' in api).toBe(false);
   });
 });

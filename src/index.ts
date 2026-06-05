@@ -64,4 +64,3 @@ export {
   MODEL_CAPABILITIES as VACUUM_MODEL_CAPABILITIES,
 } from './models/vacuum/capabilities.js';
 export type { VacuumCapabilities } from './models/vacuum/capabilities.js';
-export { deviceClassFor } from './api/nodreame.js';

@@ -14,4 +14,3 @@ export {
   MODEL_CAPABILITIES,
   type VacuumCapabilities,
 } from './capabilities.js';
-export { VACUUM_PROP, VACUUM_ACTION } from './properties.js';
