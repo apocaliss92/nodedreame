@@ -14,3 +14,22 @@ describe('public API surface (P1)', () => {
     expect(typeof api.DreameTransportError).toBe('function');
   });
 });
+
+describe('public API surface (P2)', () => {
+  it('exports the Nodreame facade', () => {
+    expect(typeof api.Nodreame).toBe('function');
+  });
+
+  it('exports the BaseDevice handle', () => {
+    expect(typeof api.BaseDevice).toBe('function');
+  });
+
+  it('exports the capability scaffold', () => {
+    expect(typeof api.DefaultCapabilityResolver).toBe('function');
+    expect(typeof api.resolveCapabilities).toBe('function');
+  });
+
+  it('does NOT leak transport internals (DreamePush is private)', () => {
+    expect('DreamePush' in api).toBe(false);
+  });
+});

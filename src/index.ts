@@ -27,3 +27,18 @@ export type {
   PropertyWrite,
   PropertyResult,
 } from './cloud/types.js';
+
+// --- Phase 2: high-level facade + generic device handle ------------------
+export { Nodreame } from './api/nodreame.js';
+export type { NodreameDeps, CreateDeviceArgs, NodreameEvents } from './api/nodreame.js';
+export { BaseDevice } from './device/base-device.js';
+export type { BaseDeviceEvents } from './device/base-device.js';
+export { DefaultCapabilityResolver, resolveCapabilities } from './device/capability.js';
+export type { CapabilityResolver, DeviceCapabilities } from './device/capability.js';
+export type {
+  NodreameOptions,
+  PropertyState,
+  PropertyChangedEvent,
+  StateChangedEvent,
+  DeviceEvent,
+} from './api/types.js';
