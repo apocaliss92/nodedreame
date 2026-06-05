@@ -48,7 +48,11 @@ export type {
 // and the capability records/resolver. Internal siid/piid/aiid property maps,
 // the model factory's property tables, and the decode helpers stay private.
 export { VacuumDevice } from './models/vacuum/vacuum-device.js';
-export type { CleanOpts } from './models/vacuum/vacuum-device.js';
+export type { CleanOpts, VacuumGetMapInput } from './models/vacuum/vacuum-device.js';
+// Fetcher-injection seam for VacuumDevice.getMap: the interface a custom
+// signed-blob fetcher implements, plus its input shape. The concrete
+// OssFetcher class and the decode internals stay private.
+export type { OssFetcherLike, OssFetchInput } from './models/vacuum/map/index.js';
 export {
   MiotState,
   ChargingStatus,
@@ -71,6 +75,10 @@ export type { VacuumCapabilities } from './models/vacuum/capabilities.js';
 // siid/piid/aiid maps, opcode payload builders, decode helpers, and the
 // deviceClassFor factory stay private.
 export { MowerDevice } from './models/mower/mower-device.js';
+// Batch-fetch injection seam for MowerDevice.getMap: the fetcher signature and
+// the construction input that carries it. The opcode/decode internals and the
+// device-class factory stay private.
+export type { BatchDeviceDataFetcher, MowerDeviceInput } from './models/mower/mower-device.js';
 export {
   MowerStatus,
   MowerChargingStatus,

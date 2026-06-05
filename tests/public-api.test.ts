@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import * as api from '../src/index.js';
 
 describe('public API surface (P1)', () => {
@@ -166,5 +168,37 @@ describe('public API surface (P5 maps)', () => {
     ]) {
       expect(k in api).toBe(false);
     }
+  });
+});
+
+describe('public API surface (fetcher-injection types)', () => {
+  // These are type-only exports (no runtime value), so we verify them against
+  // the BUILT declaration file rather than a runtime `in api` check. Requires
+  // `npm run build` to have produced dist/index.d.ts (the full gate builds).
+  const dtsPath = fileURLToPath(new URL('../dist/index.d.ts', import.meta.url));
+  const dts = readFileSync(dtsPath, 'utf8');
+
+  it('exports the vacuum getMap fetcher-injection types', () => {
+    expect(dts).toMatch(/\btype VacuumGetMapInput\b/);
+    expect(dts).toMatch(/\btype OssFetcherLike\b/);
+    expect(dts).toMatch(/\btype OssFetchInput\b/);
+  });
+
+  it('exports the mower getMap batch-fetch seam types', () => {
+    expect(dts).toMatch(/\btype BatchDeviceDataFetcher\b/);
+    expect(dts).toMatch(/\btype MowerDeviceInput\b/);
+  });
+
+  it('does NOT export the concrete OssFetcher class', () => {
+    expect('OssFetcher' in api).toBe(false);
+    // The export aggregate (the trailing `export { ... }`) must not list the
+    // concrete fetcher class — only `OssFetcherLike`/`OssFetchInput` are public.
+    // `{@link OssFetcher}` JSDoc mentions are fine; we check the export list.
+    const exportBlock = dts.slice(dts.lastIndexOf('export {'));
+    // The concrete class would appear as a value export `OssFetcher` followed
+    // by a delimiter (`,`/`}`), never `OssFetcherLike`/`OssFetchInput`.
+    expect(exportBlock).not.toMatch(/\bOssFetcher\s*[,}]/);
+    // Sanity: the interface IS in the export list.
+    expect(exportBlock).toMatch(/\btype OssFetcherLike\b/);
   });
 });

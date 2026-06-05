@@ -27,7 +27,13 @@ import {
   type VacuumCapabilities,
 } from './capabilities.js';
 import { DreameError } from '../../transport/errors.js';
-import { decodeVacuumMap, OssFetcher, type VacuumMap, type OssFetchInput } from './map/index.js';
+import {
+  decodeVacuumMap,
+  OssFetcher,
+  type VacuumMap,
+  type OssFetchInput,
+  type OssFetcherLike,
+} from './map/index.js';
 import { REGION_HOSTS } from '../../auth/config.js';
 
 /** Knobs for the segment/zone/spot helpers. Defaults pull from cached state. */
@@ -51,8 +57,12 @@ export type VacuumDeviceEvents = BaseDeviceEvents & {
 export interface VacuumGetMapInput {
   /** OSS object name advertised via the PATH push (siid 6 piid 3). */
   filename: string;
-  /** Inject the signed-blob fetcher (tests pass a fake). Default a fresh one. */
-  fetcher?: OssFetcher;
+  /**
+   * Inject the signed-blob fetcher (tests pass a fake). Defaults to a fresh
+   * {@link OssFetcher}. Typed as {@link OssFetcherLike} so consumers can pass
+   * any object exposing a compatible `fetchBlob`.
+   */
+  fetcher?: OssFetcherLike;
   /** Optional AES key for an encrypted blob (hex). */
   key?: string;
   /** Optional AES IV for an encrypted blob (hex). */

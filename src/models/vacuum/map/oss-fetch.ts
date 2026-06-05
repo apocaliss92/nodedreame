@@ -74,7 +74,17 @@ interface CacheEntry {
   expiresAt: number;
 }
 
-export class OssFetcher {
+/**
+ * Minimal fetcher seam consumed by `VacuumDevice.getMap`. Lets callers
+ * inject a custom signed-blob fetcher (e.g. a cache-backed or proxied one)
+ * without depending on the concrete {@link OssFetcher} class. The real
+ * {@link OssFetcher} implements this interface.
+ */
+export interface OssFetcherLike {
+  fetchBlob(input: OssFetchInput): Promise<Buffer>;
+}
+
+export class OssFetcher implements OssFetcherLike {
   private readonly ttlMs: number;
   private readonly now: () => number;
   private readonly fetchImpl: FetchImpl;

@@ -55,4 +55,4 @@ export type { RenderVacuumPngOptions } from './render.js';
 
 // ── Signed OSS blob fetcher ───────────────────────────────────────────────
 export { OssFetcher } from './oss-fetch.js';
-export type { OssFetchInput, OssFetcherOpts } from './oss-fetch.js';
+export type { OssFetchInput, OssFetcherOpts, OssFetcherLike } from './oss-fetch.js';
