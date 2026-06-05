@@ -1,6 +1,6 @@
 {
   "name": "nodedreame",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Node.js/TypeScript client for Dreame vacuums and mowers via the Dreamehome cloud",
   "license": "MIT",
   "author": "apocaliss92",
