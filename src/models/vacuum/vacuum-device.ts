@@ -1,5 +1,12 @@
 import { BaseDevice, type BaseDeviceInput } from '../../device/base-device.js';
-import { VACUUM_PROP, BATTERY_PROP, SETTINGS_PROP, CONSUMABLE_PROP } from './properties.js';
+import {
+  VACUUM_PROP,
+  VACUUM_ACTION,
+  BATTERY_PROP,
+  SETTINGS_PROP,
+  CONSUMABLE_PROP,
+  CUSTOM_CLEAN_MODE,
+} from './properties.js';
 import {
   ChargingStatus,
   CleaningMode,
@@ -14,6 +21,14 @@ import {
   getVacuumCapabilities,
   type VacuumCapabilities,
 } from './capabilities.js';
+import { DreameError } from '../../transport/errors.js';
+
+/** Knobs for the segment/zone/spot helpers. Defaults pull from cached state. */
+export interface CleanOpts {
+  repeats?: number;
+  fan?: number;
+  water?: number;
+}
 
 /**
  * Cast-free enum narrower: returns the matching ENUM-typed member or null.
@@ -150,6 +165,139 @@ export class VacuumDevice extends BaseDevice {
   }
   get volume(): number | null {
     return this.#num(SETTINGS_PROP.VOLUME.siid, SETTINGS_PROP.VOLUME.piid);
+  }
+
+  // -- command helpers ----------------------------------------------------
+  #resolveCleanOpts(opts: CleanOpts): { repeats: number; fan: number; water: number } {
+    const repeats = Math.max(1, Math.trunc(opts.repeats ?? 1));
+    const fan = opts.fan ?? this.suctionRaw ?? SuctionLevel.Standard;
+    const water = opts.water ?? this.waterRaw ?? WaterVolume.Medium;
+    return { repeats, fan, water };
+  }
+
+  #startCustom(mode: number, payload: Record<string, unknown>): Promise<unknown> {
+    return this.callAction(VACUUM_ACTION.START_CUSTOM.siid, VACUUM_ACTION.START_CUSTOM.aiid, [
+      { piid: 1, value: mode },
+      { piid: 10, value: JSON.stringify(payload) },
+    ]);
+  }
+
+  #requireCap(flag: boolean, op: string, feature: string): void {
+    if (!flag) {
+      throw new DreameError(`${op}: model ${this.model} does not support ${feature}`);
+    }
+  }
+
+  // -- no-arg commands ----------------------------------------------------
+  /**
+   * Start cleaning (MIoT action siid 2 aiid 1). Named `startCleaning` — NOT
+   * `start` — because `BaseDevice.start()` is the lifecycle method that opens
+   * the MQTT push, and the facade relies on that meaning. Donor `node-dreame`
+   * names this `start()` only because its standalone `Vacuum` class owns no
+   * lifecycle method to collide with.
+   */
+  startCleaning(): Promise<unknown> {
+    return this.callAction(VACUUM_ACTION.START.siid, VACUUM_ACTION.START.aiid, []);
+  }
+  pause(): Promise<unknown> {
+    return this.callAction(VACUUM_ACTION.PAUSE.siid, VACUUM_ACTION.PAUSE.aiid, []);
+  }
+  stop(): Promise<unknown> {
+    return this.callAction(VACUUM_ACTION.STOP.siid, VACUUM_ACTION.STOP.aiid, []);
+  }
+  /** Return to the dock / charge (MIoT action CHARGE, siid 3 aiid 1). */
+  dock(): Promise<unknown> {
+    return this.callAction(VACUUM_ACTION.CHARGE.siid, VACUUM_ACTION.CHARGE.aiid, []);
+  }
+  locate(): Promise<unknown> {
+    return this.callAction(VACUUM_ACTION.LOCATE.siid, VACUUM_ACTION.LOCATE.aiid, []);
+  }
+  clearWarning(): Promise<unknown> {
+    return this.callAction(VACUUM_ACTION.CLEAR_WARNING.siid, VACUUM_ACTION.CLEAR_WARNING.aiid, []);
+  }
+  async startAutoEmpty(): Promise<unknown> {
+    this.#requireCap(this.#caps.canAutoEmpty, 'startAutoEmpty', 'auto-empty');
+    return this.callAction(
+      VACUUM_ACTION.START_AUTO_EMPTY.siid,
+      VACUUM_ACTION.START_AUTO_EMPTY.aiid,
+      [],
+    );
+  }
+
+  // -- settings writes ----------------------------------------------------
+  /** Type-safe suction write. Validates against the model's supported levels. */
+  setSuction(level: SuctionLevel): Promise<unknown> {
+    return this.setSuctionRaw(level);
+  }
+  /**
+   * Untyped suction write: validates an arbitrary number against the model's
+   * supported levels and rejects with `RangeError` on an invalid input. This
+   * is the raw-input entry point so callers (and tests) can exercise validation
+   * with no type assertions. `async` so the guard surfaces as a rejection.
+   */
+  async setSuctionRaw(level: number): Promise<unknown> {
+    if (!this.#caps.supportedSuctionLevels.includes(level)) {
+      throw new RangeError(`setSuction: unsupported suction level ${String(level)}`);
+    }
+    return this.setProperty({ ...VACUUM_PROP.SUCTION_LEVEL, value: level });
+  }
+  /** Type-safe water-volume write. Validates against supported volumes. */
+  setWater(volume: WaterVolume): Promise<unknown> {
+    return this.setWaterRaw(volume);
+  }
+  /** Untyped water-volume write: validates an arbitrary number (zero casts). */
+  async setWaterRaw(volume: number): Promise<unknown> {
+    if (!this.#caps.supportedWaterVolumes.includes(volume)) {
+      throw new RangeError(`setWater: unsupported water volume ${String(volume)}`);
+    }
+    return this.setProperty({ ...VACUUM_PROP.WATER_VOLUME, value: volume });
+  }
+  /** SAFE clean-mode write — uses CLEAN_MODE_SETTING (siid 2 piid 6), never the 0x1400 bitfield. */
+  setCleaningMode(mode: CleaningMode): Promise<unknown> {
+    return this.setProperty({ ...VACUUM_PROP.CLEAN_MODE_SETTING, value: mode });
+  }
+
+  // -- targeted cleaning --------------------------------------------------
+  async cleanSegments(ids: number[], opts: CleanOpts = {}): Promise<unknown> {
+    this.#requireCap(this.#caps.canCleanPerRoom, 'cleanSegments', 'per-room cleaning');
+    if (ids.length === 0) {
+      throw new RangeError('cleanSegments: ids must not be empty');
+    }
+    const { repeats, fan, water } = this.#resolveCleanOpts(opts);
+    const selects = ids.map((id) => [id, repeats, fan, water, 1]);
+    return this.#startCustom(CUSTOM_CLEAN_MODE.SEGMENT, { selects });
+  }
+  async cleanZones(
+    zones: Array<{ x0: number; y0: number; x1: number; y1: number }>,
+    opts: CleanOpts = {},
+  ): Promise<unknown> {
+    this.#requireCap(this.#caps.canCleanPerRoom, 'cleanZones', 'per-room cleaning');
+    if (zones.length === 0) {
+      throw new RangeError('cleanZones: zones must not be empty');
+    }
+    const { repeats, fan, water } = this.#resolveCleanOpts(opts);
+    const areas = zones.map((z) => [
+      Math.round(z.x0),
+      Math.round(z.y0),
+      Math.round(z.x1),
+      Math.round(z.y1),
+      repeats,
+      fan,
+      water,
+    ]);
+    return this.#startCustom(CUSTOM_CLEAN_MODE.ZONE, { areas });
+  }
+  /**
+   * Send the robot to clean a single point (the SPOT custom-clean action,
+   * mode 20). ASSUMED: Tasshack's "go to point" is the same SPOT action — this
+   * is exposed as `cleanSpot` because it maps to the spot/custom-clean action,
+   * not a distinct go-to. No separate `goTo` is exposed.
+   */
+  async cleanSpot(point: { x: number; y: number }, opts: CleanOpts = {}): Promise<unknown> {
+    this.#requireCap(this.#caps.canCleanPerRoom, 'cleanSpot', 'per-room cleaning');
+    const { repeats, fan, water } = this.#resolveCleanOpts(opts);
+    const points = [[Math.round(point.x), Math.round(point.y), repeats, fan, water]];
+    return this.#startCustom(CUSTOM_CLEAN_MODE.SPOT, { points });
   }
 
   // NOTE: `currentSegmentId` is intentionally NOT exposed in P3. There is no
