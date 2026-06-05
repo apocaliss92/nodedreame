@@ -64,3 +64,23 @@ export {
   MODEL_CAPABILITIES as VACUUM_MODEL_CAPABILITIES,
 } from './models/vacuum/capabilities.js';
 export type { VacuumCapabilities } from './models/vacuum/capabilities.js';
+
+// --- Phase 4: mower model -------------------------------------------------
+// Public mower surface only: the typed MowerDevice handle, its value enums,
+// the capability records/resolver, and the parsed task/control types. Internal
+// siid/piid/aiid maps, opcode payload builders, decode helpers, and the
+// deviceClassFor factory stay private.
+export { MowerDevice } from './models/mower/mower-device.js';
+export {
+  MowerStatus,
+  MowerChargingStatus,
+  MowerControlAction,
+  MowerTaskStatus,
+} from './models/mower/enums.js';
+export {
+  getMowerCapabilities,
+  MowerCapabilityResolver,
+  MODEL_CAPABILITIES as MOWER_MODEL_CAPABILITIES,
+} from './models/mower/capabilities.js';
+export type { MowerCapabilities } from './models/mower/capabilities.js';
+export type { MowerTaskDescriptor, MowerControlState } from './models/mower/decode.js';

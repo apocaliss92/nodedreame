@@ -63,3 +63,38 @@ describe('public API surface (P3)', () => {
     expect('deviceClassFor' in api).toBe(false);
   });
 });
+
+describe('public API surface (P4)', () => {
+  it('exports MowerDevice', () => {
+    expect(typeof api.MowerDevice).toBe('function');
+  });
+
+  it('exports the mower enums', () => {
+    expect(api.MowerStatus.Mowing).toBe(1);
+    expect(api.MowerChargingStatus.Charging).toBe(1);
+    expect(api.MowerControlAction.Pause).toBe(4);
+    expect(typeof api.MowerTaskStatus).toBe('object');
+  });
+
+  it('exports the mower capability helpers', () => {
+    expect(typeof api.getMowerCapabilities).toBe('function');
+    expect(typeof api.MowerCapabilityResolver).toBe('function');
+    expect(typeof api.MOWER_MODEL_CAPABILITIES).toBe('object');
+  });
+
+  it('does NOT leak mower internals (property maps / decode / opcode builders stay private)', () => {
+    expect('MOWER_PROP' in api).toBe(false);
+    expect('MOWER_ACTION' in api).toBe(false);
+    expect('MOWER_EVENT' in api).toBe(false);
+    expect('TASK_OPCODE' in api).toBe(false);
+    expect('buildResumePayload' in api).toBe(false);
+    expect('buildAllAreaPayload' in api).toBe(false);
+    expect('buildZonePayload' in api).toBe(false);
+    expect('buildEdgePayload' in api).toBe(false);
+    expect('buildSpotPayload' in api).toBe(false);
+    expect('parseTaskDescriptor' in api).toBe(false);
+    expect('parseControlStatus' in api).toBe(false);
+    expect('controlActionFor' in api).toBe(false);
+    expect('deviceClassFor' in api).toBe(false);
+  });
+});
