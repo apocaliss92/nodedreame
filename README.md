@@ -288,6 +288,54 @@ parser and SVG renderer from
 [antondaubert/dreame-mower](https://github.com/antondaubert/dreame-mower). Both
 are MIT — see `LICENSE`.
 
+## Diagnostic dump (read-only)
+
+`nodedreame` can record what a device exposes while it operates and export an
+**anonymized** JSON you can attach to a GitHub issue to help map undocumented
+codes (e.g. mower `taskStatus` 2/3/10/13). The dumper is strictly **read-only** —
+it never sends a command and never wakes the robot to act. It only subscribes to
+the device's event stream (`on`/`off`), reads the cache (`getProperty`), and
+pulls the cloud shadow (`refreshFromCache`).
+
+```ts
+import { Nodreame, createDumper } from '@apocaliss92/nodedreame';
+
+const client = new Nodreame({ username, password, region: 'eu' });
+await client.login();
+const [device] = await client.discoverDevices();
+
+const dumper = createDumper(device);
+await dumper.start(); // hooks the live stream + periodic cloud-shadow read
+// ...operate the device normally for a few minutes...
+await dumper.stop();
+
+console.log(dumper.exportJson()); // pretty, anonymized — safe to share
+await client.close();
+```
+
+What it captures: per-property distinct value-sets with an `unmapped` flag
+(values that match no known enum — the highest-value signal), MIoT events, and a
+static command/capability catalog. What it strips: device/account ids, tokens,
+MAC, serial, Wi-Fi/IP, GPS, room names, and any custom device name (all →
+`[redacted]`). `firmware`/`region` are omitted (not surfaced by the device
+handle yet).
+
+Dump a whole account at once with `createClientDumper(client)`, which returns one
+dumper per discovered device:
+
+```ts
+import { createClientDumper } from '@apocaliss92/nodedreame';
+
+const dumpers = createClientDumper(client);
+await Promise.all(dumpers.map((d) => d.start()));
+// ...observe...
+await Promise.all(dumpers.map((d) => d.stop()));
+const dumps = dumpers.map((d) => d.exportJson());
+```
+
+Share the exported JSON in a library issue — maintainers diff it against the enum
+tables to label new codes and fold them into the library.
+
 ## Install
 
 ```bash
