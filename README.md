@@ -6,11 +6,11 @@ Node.js/TypeScript client for Dreame robot vacuums and mowers via the Dreamehome
 
 ## Status
 
-Phase 3 complete: on top of the Phase 2 generic handle, `discoverDevices()` now
-returns a typed `VacuumDevice` for `dreame.vacuum.*` models, with decoded state
-getters (status, battery, suction, water, cleaning mode, faults, consumables)
-and capability-gated commands. Mower-specific handles (Phase 4) and live map
-decoding (Phase 5) are not implemented yet.
+Phase 4 complete: on top of the Phase 2 generic handle, `discoverDevices()` now
+returns a typed `VacuumDevice` for `dreame.vacuum.*` models and a typed
+`MowerDevice` for `dreame.mower.*` models, each with decoded state getters and
+capability-gated commands. Live map / pose-coverage track decoding (Phase 5) is
+not implemented yet.
 
 Under the hood:
 
@@ -129,6 +129,78 @@ await client.close();
   from Tasshack and not yet live-verified across all models.
 - **No map-derived state yet.** Per-room/current-segment data and live maps come
   from the map layer (Phase 5); they are not exposed in Phase 3.
+
+## Mowers
+
+For `dreame.mower.*` models, `discoverDevices()` returns a `MowerDevice` (a
+subclass of the generic handle) with typed, decoded state getters and
+capability-gated commands, mirroring the vacuum surface.
+
+```ts
+import { Nodreame, MowerDevice } from 'nodedreame';
+
+const client = new Nodreame({
+  username: process.env.DREAME_USERNAME!,
+  password: process.env.DREAME_PASSWORD!,
+  region: 'eu',
+});
+
+await client.login();
+const devices = await client.discoverDevices();
+
+const mower = devices.find((d): d is MowerDevice => d instanceof MowerDevice);
+if (mower) {
+  // Seed the cache with the mower's known properties (one live read).
+  await mower.refreshProperties([...MowerDevice.DEFAULT_PROPS]);
+
+  // Typed, decoded state. Each getter returns null until the matching
+  // property has landed (via the seed read above or a pushed update).
+  console.log('status:', mower.status); // MowerStatus | null
+  console.log('battery:', mower.battery); // number | null (%)
+  console.log('charging:', mower.charging); // MowerChargingStatus | null
+  console.log('docked:', mower.isDocked); // boolean
+  console.log('mowing:', mower.isMowing); // boolean
+  console.log('task:', mower.task); // MowerTaskDescriptor | null (2:50)
+  console.log('coverage target %:', mower.coverageTargetPct); // number | null
+  console.log('control action:', mower.controlAction); // MowerControlAction | null
+
+  // Capability-gated commands (all async).
+  await mower.startMowing(); // begins mowing (NOT the lifecycle start())
+  // await mower.pause();
+  // await mower.stop();
+  // await mower.dock();   // return to dock / charge
+  // await mower.resume(); // resume after a pause (continueControl opcode)
+  // Targeted starts (gated by the model's capability flags):
+  // await mower.startMowingAllArea(mapId);   // whole map
+  // await mower.startMowingZones([1, 3]);    // selected zones
+  // await mower.startMowingEdges([[1, 0]]);  // edge / contour pairs
+  // await mower.startMowingSpots([5]);       // spot areas
+}
+
+await client.close();
+```
+
+> **`startMowing()`, not `start()`.** `start()` is the inherited lifecycle
+> method that opens the MQTT push; the mowing command is `startMowing()`. All
+> command methods are `async`.
+
+### Honest caveats
+
+- **State getters return `null` until data lands.** Call
+  `refreshProperties([...MowerDevice.DEFAULT_PROPS])` (or wait for a pushed
+  update) before reading; an unseeded getter is `null`, and an out-of-range raw
+  value also decodes to `null` (the raw integer is still available via the
+  `*Raw` getters, e.g. `mower.statusRaw`, `mower.chargingRaw`,
+  `mower.taskStatusRaw`).
+- **`dreame.mower.p2255` (Dreame A1) capabilities are assumed, not verified.**
+  The donor integration has no per-model mower capability matrix, so the
+  targeted-mowing flags are a conservative hypothesis from its command surface;
+  `mower.mowerCapabilities.verified === false` until confirmed on-device.
+  Unsupported targeted starts throw `DreameError`.
+- **Progress is a coverage scalar, not a map track.** `coverageTargetPct`
+  surfaces the scheduling-task descriptor's coverage target (`d.o`, 2:50); the
+  byte-accurate pose/coverage track geometry and live maps come from the map
+  layer (Phase 5) and are not decoded here.
 
 The error classes and core domain types are also exported so consumers can catch
 and type cloud failures:
