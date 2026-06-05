@@ -287,4 +287,18 @@ describe('parseBatchMapData', () => {
     expect(map?.name).toBe('Solo');
     expect(map?.mapIndex).toBe(3);
   });
+
+  it('returns null when MAP.* reassembles but no part yields a parseable map', () => {
+    // rawMap is non-null (a present, non-empty chunk), but the payload is a
+    // JSON array whose ONLY element is an unparseable map-json string — every
+    // entry throws and is skipped → parsedMaps is empty → null.
+    const arr = JSON.stringify(['{ not valid json']);
+    expect(parseBatchMapData({ 'MAP.0': arr })).toBeNull();
+  });
+
+  it('returns null when MAP.* reassembles to a non-array JSON value', () => {
+    // rawMap is non-null but parses to an object, not an array of strings →
+    // parseMapPart returns [] → parsedMaps empty → null.
+    expect(parseBatchMapData({ 'MAP.0': '{"not":"an array"}' })).toBeNull();
+  });
 });
