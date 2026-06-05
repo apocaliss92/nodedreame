@@ -118,12 +118,10 @@ export function parseControlStatus(value: unknown): MowerControlState | null {
     if (pair === null || pair.length < 2) {
       return null;
     }
-    const zone = pair[0];
-    const code = pair[1];
-    if (zone === undefined || code === undefined) {
-      return null;
-    }
-    zones.push([zone, code]);
+    // `numArrayOrNull` already guarantees an all-number array and the length
+    // check guarantees >=2 elements, so the pair is pushed as-is (no per-index
+    // undefined guard needed — that branch would be unreachable / dead).
+    zones.push(pair);
   }
   const primary = zones.find((e) => e[1] === 0) ?? zones[0];
   const code = primary?.[1] ?? null;

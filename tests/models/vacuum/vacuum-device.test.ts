@@ -118,6 +118,38 @@ describe('VacuumDevice state getters', () => {
     await v.close();
   });
 
+  it('decodes seeded consumable + settings properties into the numeric getters', async () => {
+    const results: PropertyResult[] = [
+      { siid: 9, piid: 2, value: 80, code: 0 }, // MAIN_BRUSH_LEFT
+      { siid: 10, piid: 2, value: 65, code: 0 }, // SIDE_BRUSH_LEFT
+      { siid: 11, piid: 1, value: 50, code: 0 }, // FILTER_LEFT
+      { siid: 7, piid: 1, value: 70, code: 0 }, // VOLUME
+      { siid: 4, piid: 63, value: 33, code: 0 }, // TASK_PROGRESS_PCT
+    ];
+    const v = new VacuumDevice({
+      device: fakeDevice(),
+      region: 'eu',
+      sessionRef: fakeSession,
+      deps: depsReturning(results),
+      fetchInitialValues: false,
+    });
+    await v.start();
+    await v.refreshProperties([
+      { siid: 9, piid: 2 },
+      { siid: 10, piid: 2 },
+      { siid: 11, piid: 1 },
+      { siid: 7, piid: 1 },
+      { siid: 4, piid: 63 },
+    ]);
+
+    expect(v.mainBrushLeftPct).toBe(80);
+    expect(v.sideBrushLeftPct).toBe(65);
+    expect(v.filterLeftPct).toBe(50);
+    expect(v.volume).toBe(70);
+    expect(v.taskProgressPct).toBe(33);
+    await v.close();
+  });
+
   it('exposes the rich vacuum capabilities (r2538z assumed) + generic tokens', () => {
     const v = new VacuumDevice({
       device: fakeDevice(),
