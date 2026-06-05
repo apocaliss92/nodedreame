@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import { BaseDevice } from '../../src/device/base-device.js';
 import type { BaseDeviceDeps, PushLike } from '../../src/device/base-device.js';
 import type { DreameDevice, DreameSession, PropertyResult } from '../../src/cloud/types.js';
+import { DreameTransportError } from '../../src/transport/errors.js';
 
 const device: DreameDevice = {
   did: 'DID1',
@@ -303,5 +304,55 @@ describe('BaseDevice — poll fallback', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('BaseDevice — closed guards (FIX 2)', () => {
+  function closedDevice() {
+    const { deps } = makeDeps();
+    return new BaseDevice({
+      device,
+      region: 'eu',
+      sessionRef: () => session('T'),
+      deps,
+      fetchInitialValues: false,
+    });
+  }
+
+  it('refreshProperties after close() throws a clear error', async () => {
+    const d = closedDevice();
+    await d.start();
+    await d.close();
+    await expect(d.refreshProperties([{ siid: 2, piid: 1 }])).rejects.toThrow(DreameTransportError);
+    await expect(d.refreshProperties([{ siid: 2, piid: 1 }])).rejects.toThrow(/closed/i);
+  });
+
+  it('setProperty after close() throws a clear error', async () => {
+    const d = closedDevice();
+    await d.start();
+    await d.close();
+    await expect(d.setProperty({ siid: 2, piid: 4, value: 1 })).rejects.toThrow(
+      DreameTransportError,
+    );
+    await expect(d.setProperty({ siid: 2, piid: 4, value: 1 })).rejects.toThrow(/closed/i);
+  });
+
+  it('callAction after close() throws a clear error', async () => {
+    const d = closedDevice();
+    await d.start();
+    await d.close();
+    await expect(d.callAction(4, 1)).rejects.toThrow(DreameTransportError);
+    await expect(d.callAction(4, 1)).rejects.toThrow(/closed/i);
+  });
+});
+
+describe('PushLike — honest event surface (FIX 4)', () => {
+  it('does not advertise an unhandled "props" overload that start() never subscribes to', () => {
+    const push: PushLike = new FakePush();
+    // The PushLike interface must only declare events BaseDevice.start() wires.
+    // Subscribing to 'props' must be a type error (no such overload on PushLike).
+    // @ts-expect-error 'props' is not part of the honest PushLike surface
+    push.on('props', () => {});
+    expect(typeof push.on).toBe('function');
   });
 });

@@ -13,6 +13,7 @@ import {
   type CommonInput,
 } from '../cloud/commands.js';
 import { DreamePush, type PropertyChange } from '../transport/mqtt-push.js';
+import { DreameTransportError } from '../transport/errors.js';
 import { TypedEmitter } from '../transport/typed-emitter.js';
 import { DefaultCapabilityResolver, type DeviceCapabilities } from './capability.js';
 import type {
@@ -33,7 +34,6 @@ export interface PushLike {
     event: 'event',
     cb: (ev: { did: string; siid: number; eiid: number; arguments: unknown[] }) => void,
   ): this;
-  on(event: 'props', cb: (p: { did: string; params: Record<string, unknown> }) => void): this;
   on(event: 'connect', cb: () => void): this;
   on(event: 'close', cb: () => void): this;
   on(event: 'error', cb: (err: Error) => void): this;
@@ -172,6 +172,7 @@ export class BaseDevice extends TypedEmitter<BaseDeviceEvents> {
 
   /** Live-read properties, update the cache, return the raw results. */
   async refreshProperties(props: MiotProp[]): Promise<PropertyResult[]> {
+    this.#assertOpen();
     const results = await this.#deps.getProperties(this.#base(), props);
     const changes: PropertyChange[] = [];
     for (const r of results) {
@@ -187,12 +188,21 @@ export class BaseDevice extends TypedEmitter<BaseDeviceEvents> {
 
   /** Write a property to the device. */
   async setProperty(write: PropertyWrite): Promise<PropertyResult[]> {
+    this.#assertOpen();
     return this.#deps.setProperties(this.#base(), [write]);
   }
 
   /** Invoke a MIoT action on the device. */
   async callAction(siid: number, aiid: number, input: unknown[] = []): Promise<unknown> {
+    this.#assertOpen();
     return this.#deps.callAction(this.#base(), { siid, aiid, in: input });
+  }
+
+  /** Guard against use after {@link close}. */
+  #assertOpen(): void {
+    if (this.#closed) {
+      throw new DreameTransportError('device handle is closed');
+    }
   }
 
   /** Propagate a refreshed session to the underlying push. */
