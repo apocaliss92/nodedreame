@@ -216,6 +216,78 @@ import {
 import type { DreameSession, DreameDevice, MiotProp } from 'nodedreame';
 ```
 
+## Maps
+
+Both device families decode their on-device map and render it to an image. The
+binary/JSON decoders, the OSS signed-blob fetcher and every intermediate step
+stay private — you obtain maps through the device handles and (optionally) the
+two renderers.
+
+### Vacuum map → PNG
+
+`VacuumDevice.getMap()` resolves a saved/live map blob, decrypts and inflates
+the binary envelope, parses the 27-byte header and the `fsm:1` pixel grid, and
+returns a structured `VacuumMap` — segments/rooms, the cleaning path, AI
+obstacles, virtual walls, no-go / no-mop zones, sneak zones, per-room walls and
+the cleaned-area overlay. `renderVacuumPng(map)` rasterises it to a PNG
+`Buffer` via `pngjs`.
+
+```ts
+import { renderVacuumPng } from 'nodedreame';
+import type { VacuumMap } from 'nodedreame';
+import { writeFile } from 'node:fs/promises';
+
+// `filename` is the OSS object name advertised on the map PATH push (siid 6,
+// piid 3); resolve it from a `mapInfo` push before calling getMap().
+const map: VacuumMap = await vacuum.getMap({ filename });
+const png = renderVacuumPng(map); // Buffer (optional { scale } upscale)
+await writeFile('map.png', png);
+
+// The most-recently-decoded map is cached, and the active room id is derived:
+vacuum.lastMap; // VacuumMap | null
+vacuum.currentSegmentId; // number | null (id of the active segment)
+```
+
+> **Live map data requires an awake robot.** A sleeping vacuum returns no fresh
+> blob. `getMap()` decodes a single frame; continuous live-frame **P-frame
+> streaming** (merging delta frames as the robot moves) is a documented
+> follow-up — the `applyVacuumPFrame` merge primitive ships and is unit-tested,
+> so that work is additive, not a rewrite.
+
+### Mower map → SVG
+
+`MowerDevice.getMap()` reassembles the batched `MAP.*` / `M_PATH.*` JSON chunks
+and parses them into a `MowerMap` — zones, spot areas, forbidden areas,
+navigation paths, contours, mow-path tracks and the map boundary.
+`mower.mapSvg()` (or the free `renderMowerSvg(map)`) renders a deterministic SVG
+string of the geometry.
+
+```ts
+import { renderMowerSvg } from 'nodedreame';
+import type { MowerMap } from 'nodedreame';
+import { writeFile } from 'node:fs/promises';
+
+const map: MowerMap = await mower.getMap();
+const svg = await mower.mapSvg(); // or renderMowerSvg(map)
+await writeFile('map.svg', svg);
+```
+
+> **Same awake-robot caveat.** A sleeping mower returns no fresh batch.
+> Additionally, the concrete **live batch-fetch cloud endpoint is a documented
+> follow-up**: its path is obfuscated in the donor integration and not yet
+> recovered, so the default fetcher throws (`getMap()` then rejects). The map
+> **parser and SVG renderer are fully shipped and unit-tested** against batch
+> fixtures, and `MowerDevice` accepts an injected batch fetcher seam, so a
+> caller that already knows the path can drive a live map today.
+
+### Attribution
+
+The vacuum map decoder is ported from
+[malard/node-dreame](https://github.com/malard/node-dreame); the mower map
+parser and SVG renderer from
+[antondaubert/dreame-mower](https://github.com/antondaubert/dreame-mower). Both
+are MIT — see `LICENSE`.
+
 ## Install
 
 ```bash
