@@ -88,8 +88,18 @@ export interface BaseDeviceInput {
 
 const DEFAULT_POLL_INTERVAL_MS = 30000;
 
-/** A device-type-agnostic live handle for one Dreame device. */
-export class BaseDevice extends TypedEmitter<BaseDeviceEvents> {
+/**
+ * A device-type-agnostic live handle for one Dreame device.
+ *
+ * Generic over its event map so subclasses can WIDEN the typed emitter with
+ * their own events (e.g. the vacuum's `'map'` event) without a banned cast.
+ * `Events` is constrained to extend {@link BaseDeviceEvents} so every internal
+ * `emit(...)` call stays type-safe, and it defaults to {@link BaseDeviceEvents}
+ * so a bare `BaseDevice` reference behaves exactly as before.
+ */
+export class BaseDevice<
+  Events extends BaseDeviceEvents = BaseDeviceEvents,
+> extends TypedEmitter<Events> {
   readonly #device: DreameDevice;
   readonly #region: DreameRegion;
   readonly #sessionRef: () => DreameSession;
@@ -145,6 +155,16 @@ export class BaseDevice extends TypedEmitter<BaseDeviceEvents> {
 
   #base(): CommonInput {
     return { session: this.#sessionRef(), region: this.#region, did: this.#device.did };
+  }
+
+  /** The region this handle is bound to. Subclasses use it to build map fetches. */
+  protected get region(): DreameRegion {
+    return this.#region;
+  }
+
+  /** Latest session snapshot. Subclasses use it for out-of-band fetches (maps). */
+  protected currentSession(): DreameSession {
+    return this.#sessionRef();
   }
 
   /** Open the push, wire events, optionally seed the cache. */

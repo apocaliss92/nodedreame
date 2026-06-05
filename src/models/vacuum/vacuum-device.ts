@@ -1,4 +1,8 @@
-import { BaseDevice, type BaseDeviceInput } from '../../device/base-device.js';
+import {
+  BaseDevice,
+  type BaseDeviceInput,
+  type BaseDeviceEvents,
+} from '../../device/base-device.js';
 import {
   VACUUM_PROP,
   VACUUM_ACTION,
@@ -23,12 +27,42 @@ import {
   type VacuumCapabilities,
 } from './capabilities.js';
 import { DreameError } from '../../transport/errors.js';
+import { decodeVacuumMap, OssFetcher, type VacuumMap, type OssFetchInput } from './map/index.js';
+import { REGION_HOSTS } from '../../auth/config.js';
 
 /** Knobs for the segment/zone/spot helpers. Defaults pull from cached state. */
 export interface CleanOpts {
   repeats?: number;
   fan?: number;
   water?: number;
+}
+
+/**
+ * The vacuum widens the {@link BaseDeviceEvents} map with a `'map'` event,
+ * emitted by {@link VacuumDevice.getMap} once a fresh map has been decoded.
+ * Declaring it here lets `VacuumDevice extends BaseDevice<VacuumDeviceEvents>`
+ * type the emitter with no banned cast.
+ */
+export type VacuumDeviceEvents = BaseDeviceEvents & {
+  map: [VacuumMap];
+};
+
+/** Input to {@link VacuumDevice.getMap}. */
+export interface VacuumGetMapInput {
+  /** OSS object name advertised via the PATH push (siid 6 piid 3). */
+  filename: string;
+  /** Inject the signed-blob fetcher (tests pass a fake). Default a fresh one. */
+  fetcher?: OssFetcher;
+  /** Optional AES key for an encrypted blob (hex). */
+  key?: string;
+  /** Optional AES IV for an encrypted blob (hex). */
+  iv?: string;
+  /** Override the API host (defaults from the device region). */
+  host?: string;
+  /** Per-request timeout override in ms. */
+  timeoutMs?: number;
+  /** Caller-supplied AbortSignal. */
+  signal?: AbortSignal;
 }
 
 const SUCTION = enumLookup<SuctionLevel>([
@@ -62,8 +96,9 @@ const TASK = enumLookup<TaskStatus>([
 ]);
 
 /** A typed Dreame-vacuum handle (state + capability-gated commands). */
-export class VacuumDevice extends BaseDevice {
+export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
   readonly #caps: VacuumCapabilities;
+  #lastMap: VacuumMap | null = null;
 
   constructor(input: BaseDeviceInput) {
     super({
@@ -291,10 +326,58 @@ export class VacuumDevice extends BaseDevice {
     return this.#startCustom(CUSTOM_CLEAN_MODE.SPOT, { points });
   }
 
-  // NOTE: `currentSegmentId` is intentionally NOT exposed in P3. There is no
-  // verified single-property source for the current room id — Tasshack derives
-  // it from the live MAP, which lands in P5. We do not ship an always-null
-  // placeholder getter; the accessor arrives with the map layer.
+  // -- maps ---------------------------------------------------------------
+  /** The most-recently-decoded map, or `null` until {@link getMap} succeeds. */
+  get lastMap(): VacuumMap | null {
+    return this.#lastMap;
+  }
+
+  /**
+   * The current room/segment id, derived from the most-recently-decoded map's
+   * active-segment set (`sa`). `null` when no map has been fetched or no
+   * segment is currently active. REPLACES the P3 "intentionally not exposed"
+   * placeholder — the value now comes from the decoded map layer (P5).
+   */
+  get currentSegmentId(): number | null {
+    return this.#lastMap?.segments.find((s) => s.active)?.id ?? null;
+  }
+
+  /**
+   * Fetch the current saved/live-map blob (OSS), decode it, cache it as
+   * {@link lastMap}, emit a `'map'` event, and return the {@link VacuumMap}.
+   *
+   * Capability-gated on `canMap`. The `filename` is the OSS object name the
+   * caller resolves from a `mapInfo`/PATH push. The fetcher is injectable so
+   * tests drive it with a synthetic blob and no live network.
+   *
+   * NOTE: active live-frame P-frame STREAMING (continuous merge orchestration)
+   * is a documented follow-up; `getMap` resolves a single frame here. The
+   * `applyVacuumPFrame` merge primitive ships separately for that work.
+   */
+  async getMap(input: VacuumGetMapInput): Promise<VacuumMap> {
+    this.#requireCap(this.#caps.canMap, 'getMap', 'map decoding');
+    const session = this.currentSession();
+    const region = this.region;
+    const fetcher = input.fetcher ?? new OssFetcher();
+    const fetchInput: OssFetchInput = {
+      host: input.host ?? REGION_HOSTS[region],
+      accessToken: session.accessToken,
+      region,
+      did: this.deviceId,
+      model: this.model,
+      filename: input.filename,
+      ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+      ...(input.signal !== undefined ? { signal: input.signal } : {}),
+    };
+    const blob = await fetcher.fetchBlob(fetchInput);
+    const map = decodeVacuumMap(blob, {
+      ...(input.key !== undefined ? { key: input.key } : {}),
+      ...(input.iv !== undefined ? { iv: input.iv } : {}),
+    });
+    this.#lastMap = map;
+    this.emit('map', map);
+    return map;
+  }
 
   /** Props worth seeding on start() / polling — exported for the facade. */
   static readonly DEFAULT_PROPS = [

@@ -29,6 +29,8 @@ export interface VacuumCapabilities {
   supportsNoGoZones: boolean;
   hasChildLock: boolean;
   supportsMultiFloor: boolean;
+  /** Decodes/fetches the binary live/saved map (envelope → pixel grid → segments). */
+  canMap: boolean;
   supportedSuctionLevels: readonly SuctionLevel[];
   supportedWaterVolumes: readonly WaterVolume[];
 }
@@ -51,6 +53,10 @@ const FALLBACK: Omit<VacuumCapabilities, 'model'> = {
   supportsNoGoZones: false,
   hasChildLock: false,
   supportsMultiFloor: false,
+  // Map decoding is model-agnostic (binary frame format is identical across
+  // the lineup); the fallback record leaves it false so an unknown model does
+  // not advertise a feature we have not verified its firmware exposes.
+  canMap: false,
   supportedSuctionLevels: [
     SuctionLevel.Quiet,
     SuctionLevel.Standard,
@@ -78,6 +84,7 @@ const X50_FAMILY: Omit<VacuumCapabilities, 'model' | 'verified'> = {
   supportsNoGoZones: true,
   hasChildLock: true,
   supportsMultiFloor: true,
+  canMap: true,
   supportedSuctionLevels: [
     SuctionLevel.Quiet,
     SuctionLevel.Standard,
