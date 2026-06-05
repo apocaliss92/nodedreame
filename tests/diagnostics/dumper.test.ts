@@ -378,3 +378,58 @@ describe('Dumper export', () => {
     expect(strip(a)).toBe(strip(b));
   });
 });
+
+describe('Dumper is strictly read-only', () => {
+  it('never invokes any action/command on a real VacuumDevice', async () => {
+    const v = vacuum();
+    const spies = [
+      vi.spyOn(v, 'startCleaning'),
+      vi.spyOn(v, 'pause'),
+      vi.spyOn(v, 'stop'),
+      vi.spyOn(v, 'dock'),
+      vi.spyOn(v, 'locate'),
+      vi.spyOn(v, 'callAction'),
+      vi.spyOn(v, 'setProperty'),
+      vi.spyOn(v, 'cleanSegments'),
+    ];
+    // Stub refreshFromCache so we don't hit the network in a unit test.
+    vi.spyOn(v, 'refreshFromCache').mockResolvedValue(undefined);
+    const dumper = createDumper(v, { refreshIntervalMs: 0 });
+    await dumper.start();
+    v.emit('propertyChanged', { deviceId: 'd1', siid: 2, piid: 1, value: 6, previousValue: null });
+    await dumper.stop();
+    const dump = dumper.export();
+    expect(dump.observations.properties['2.1']?.values).toEqual([6]);
+    for (const s of spies) expect(s).not.toHaveBeenCalled();
+  });
+
+  it('flags an unknown mower taskStatus code as unmapped (5.104)', async () => {
+    const m = mower();
+    vi.spyOn(m, 'refreshFromCache').mockResolvedValue(undefined);
+    const dumper = createDumper(m, { refreshIntervalMs: 0 });
+    await dumper.start();
+    // 7 = SpotIncomplete (known)
+    m.emit('propertyChanged', {
+      deviceId: 'd1',
+      siid: 5,
+      piid: 104,
+      value: 7,
+      previousValue: null,
+    });
+    // 99 = a donor "Unknown task status" code → unmapped
+    m.emit('propertyChanged', {
+      deviceId: 'd1',
+      siid: 5,
+      piid: 104,
+      value: 99,
+      previousValue: null,
+    });
+    await dumper.stop();
+    const obs = dumper.export().observations.properties['5.104'];
+    if (!obs) throw new Error('expected 5.104');
+    expect(obs.values).toEqual([7, 99]);
+    expect(obs.unmapped).toEqual([99]); // the discovery signal
+    expect(obs.enum).toBe('MowerTaskStatus');
+    expect(dumper.export().device.type).toBe('mower');
+  });
+});
