@@ -143,6 +143,9 @@ export class Nodreame extends TypedEmitter<NodreameEvents> {
 
   /** Discover devices and build a live handle per device. */
   async discoverDevices(): Promise<readonly BaseDevice[]> {
+    if (this.#closed) {
+      throw new DreameAuthError('client is closed');
+    }
     const session = await this.ensureSession();
     const records = await this.#deps.listDevices({
       session,
@@ -162,7 +165,11 @@ export class Nodreame extends TypedEmitter<NodreameEvents> {
       h.on('error', (err) => this.emit('error', err));
       await h.start();
     }
+    // Close any handles from a previous discovery before adopting the new set —
+    // each holds an open MQTT push + a poll timer that would otherwise leak.
+    const previous = this.#devices;
     this.#devices = [...handles];
+    await Promise.all(previous.map((d) => d.close()));
     return this.#devices;
   }
 
