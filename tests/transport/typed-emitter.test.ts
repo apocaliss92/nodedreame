@@ -23,4 +23,18 @@ describe('TypedEmitter', () => {
     em.emit('done');
     expect(fn).toHaveBeenCalledTimes(1);
   });
+
+  it('removeAllListeners detaches every listener and is chainable', () => {
+    const em = new TypedEmitter<Events>();
+    const ping = vi.fn();
+    const done = vi.fn();
+    em.on('ping', ping);
+    em.on('done', done);
+    const returned = em.removeAllListeners();
+    expect(returned).toBe(em);
+    em.emit('ping', 1);
+    em.emit('done');
+    expect(ping).not.toHaveBeenCalled();
+    expect(done).not.toHaveBeenCalled();
+  });
 });

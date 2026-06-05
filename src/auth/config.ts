@@ -49,7 +49,14 @@ export const REGION_DEFAULT_LANG: Record<DreameRegion, string> = {
   tw: 'zh',
 };
 
-/** Static OAuth2 client credentials baked into the Dreamehome app. */
+/**
+ * App-level OAuth2 CLIENT credentials (a Basic header) baked into the public
+ * Dreamehome app binary — NOT a user secret, password, or per-account token.
+ * These identify the app to the OAuth endpoint and are identical for every
+ * install; they rotate only when Dreame ships a new app release (last verified
+ * against cv=i_829). Not sensitive — safe to commit. (SAST note: this is a
+ * shipped public client id/secret, not a leaked credential.)
+ */
 export const OAUTH_BASIC_AUTH = 'Basic ZHJlYW1lX2FwcHYxOkFQXmR2QHpAU1FZVnhOODg=';
 
 /** App-version fingerprint. Update if a new app version starts requiring it. */
