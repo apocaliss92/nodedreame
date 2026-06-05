@@ -95,6 +95,14 @@ export interface DreamePushInput {
   connect?: MqttConnectFn;
   /** Backoff before a reconnect attempt after an unexpected drop. Default 5000. */
   reconnectBackoffMs?: number;
+  /**
+   * Whether the TLS layer must reject a server certificate that does not chain
+   * to a trusted public CA. Defaults to `false`: Dreame brokers present
+   * device-specific certificates that are NOT chained to a public CA, so strict
+   * verification fails against the real fleet. Override to `true` only when
+   * pointing at a broker with a properly chained certificate (e.g. a test rig).
+   */
+  rejectUnauthorized?: boolean;
 }
 
 /**
@@ -111,6 +119,7 @@ export class DreamePush extends TypedEmitter<DreamePushEvents> {
   readonly #region: DreameRegion;
   readonly #connect: MqttConnectFn;
   readonly #backoffMs: number;
+  readonly #rejectUnauthorized: boolean;
   readonly #topic: string;
   #client: MqttLikeClient | null = null;
   #closed = false;
@@ -132,6 +141,7 @@ export class DreamePush extends TypedEmitter<DreamePushEvents> {
     this.#region = input.region;
     this.#connect = input.connect ?? defaultConnect;
     this.#backoffMs = input.reconnectBackoffMs ?? 5000;
+    this.#rejectUnauthorized = input.rejectUnauthorized ?? false;
     this.#topic = buildStatusTopic(this.#device, this.#session.uid, this.#region);
     // Bind once so the reference is stable across register/remove calls.
     this.#onClose = (): void => {
@@ -197,7 +207,7 @@ export class DreamePush extends TypedEmitter<DreamePushEvents> {
       protocolVersion: 4,
       reconnectPeriod: 0, // we drive reconnect ourselves
       connectTimeout: 15000,
-      rejectUnauthorized: false,
+      rejectUnauthorized: this.#rejectUnauthorized,
       clean: true,
     });
     this.#client = client;

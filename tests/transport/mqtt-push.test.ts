@@ -117,6 +117,30 @@ describe('pure helpers', () => {
   });
 });
 
+describe('DreamePush — rejectUnauthorized option', () => {
+  it('defaults rejectUnauthorized to false', async () => {
+    const { connect, created } = makeFactory();
+    const push = new DreamePush({ device, session: session('T'), region: 'eu', connect });
+    await push.open();
+    expect(created[0]!.opts.rejectUnauthorized).toBe(false);
+    await push.close();
+  });
+
+  it('propagates rejectUnauthorized:true into the connect options', async () => {
+    const { connect, created } = makeFactory();
+    const push = new DreamePush({
+      device,
+      session: session('T'),
+      region: 'eu',
+      connect,
+      rejectUnauthorized: true,
+    });
+    await push.open();
+    expect(created[0]!.opts.rejectUnauthorized).toBe(true);
+    await push.close();
+  });
+});
+
 describe('DreamePush — connect + subscribe', () => {
   it('connects with uid/token and subscribes to the status topic', async () => {
     const { connect, created } = makeFactory();
