@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { DeviceDumpSchema, type DeviceDump } from '../../src/diagnostics/dump-format.js';
+import { LIBRARY_VERSION } from '../../src/support/version.js';
 
 function goodDump(): DeviceDump {
   return {
@@ -68,5 +70,22 @@ describe('DeviceDumpSchema', () => {
       },
     };
     expect(DeviceDumpSchema.safeParse(bad).success).toBe(false);
+  });
+});
+
+describe('LIBRARY_VERSION', () => {
+  it('matches package.json version (so the hardcoded constant cannot drift)', () => {
+    // Read + parse package.json cast-free: narrow the parsed value with runtime
+    // guards before reading `version`, avoiding an ESM JSON-import assertion.
+    const raw = readFileSync(new URL('../../package.json', import.meta.url), 'utf8');
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null || !('version' in parsed)) {
+      throw new Error('package.json has no version field');
+    }
+    const version = parsed.version;
+    if (typeof version !== 'string') {
+      throw new Error('package.json version is not a string');
+    }
+    expect(LIBRARY_VERSION).toBe(version);
   });
 });

@@ -18,6 +18,8 @@ import { decodeVacuumMap } from '../../src/models/vacuum/map/decode.js';
 import { renderMowerSvg } from '../../src/models/mower/map/render.js';
 import { parseBatchMapData } from '../../src/models/mower/map/parser.js';
 import { buildSyntheticFrame } from '../models/vacuum/map/fixtures/build-frame.js';
+import { createDumper } from '../../src/diagnostics/dumper.js';
+import { DeviceDumpSchema } from '../../src/diagnostics/dump-format.js';
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
@@ -368,5 +370,63 @@ describe.runIf(enabled)('e2e: Nodreame facade', () => {
     }
 
     await client.close();
+  });
+
+  it('builds an anonymized, schema-valid dump from each real device (zero secrets)', async () => {
+    expect(username, 'set DREAME_USERNAME in .env').not.toBe('');
+    expect(password, 'set DREAME_PASSWORD in .env').not.toBe('');
+
+    const client = new Nodreame({ username, password, region, fetchInitialValues: false });
+    await client.login();
+    const devices = await client.discoverDevices();
+    expect(devices.length).toBeGreaterThan(0);
+
+    // Public secret probes (NEVER printed): the session token/uid and every
+    // device id. The exported dump must contain NONE of them.
+    const session = client.session;
+    const secrets: string[] = [];
+    if (session?.accessToken) secrets.push(session.accessToken);
+    if (session?.uid) secrets.push(session.uid);
+    for (const d of devices) {
+      if (d.deviceId) secrets.push(d.deviceId);
+    }
+
+    try {
+      for (const device of devices) {
+        const dumper = createDumper(device, { refreshIntervalMs: 0 });
+        await dumper.start(); // initial refreshFromCache pulls the cloud shadow
+        await new Promise((r) => setTimeout(r, 2000)); // brief observation window
+        await dumper.stop();
+
+        const dump = dumper.export();
+        expect(DeviceDumpSchema.safeParse(dump).success).toBe(true);
+        expect(dump.library).toBe('nodedreame');
+        expect(dump.libraryVersion).toBeTruthy();
+        expect(dump.device.model).toMatch(/^dreame\.(vacuum|mower)\./);
+
+        // ZERO secrets anywhere in the exported JSON. We scan the string for any
+        // known secret substring; we NEVER console.log the JSON itself.
+        const json = dumper.exportJson();
+        for (const secret of secrets) {
+          expect(json.includes(secret)).toBe(false);
+        }
+
+        // Masked diagnostics only: model, property count, and any unmapped values
+        // discovered (the whole point of the dump). No live values are printed.
+        const props = dump.observations.properties;
+        const propKeys = Object.keys(props);
+        const unmappedFindings = propKeys
+          .filter((k) => (props[k]?.unmapped.length ?? 0) > 0)
+          .map((k) => `${k}=${JSON.stringify(props[k]?.unmapped)}`);
+        console.log(
+          `[e2e] dump ${dump.device.type ?? '?'} ${dump.device.model}: ` +
+            `props=${propKeys.length} events=${dump.observations.events.length} ` +
+            `commands=${dump.catalog.commands?.length ?? 0} ` +
+            `unmapped=${unmappedFindings.length ? unmappedFindings.join(',') : 'none'}`,
+        );
+      }
+    } finally {
+      await client.close();
+    }
   });
 });
