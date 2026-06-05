@@ -84,3 +84,50 @@ export {
 } from './models/mower/capabilities.js';
 export type { MowerCapabilities } from './models/mower/capabilities.js';
 export type { MowerTaskDescriptor, MowerControlState } from './models/mower/decode.js';
+
+// --- Phase 5: maps --------------------------------------------------------
+// Public map surface: the structured model types + the two renderers. The
+// binary/JSON decoders, the OSS signed-blob fetcher, and every intermediate
+// decode step (envelope/header/pixel-grid/path/obstacles/geometry/cleaned-area/
+// merge, mower chunk reassembly + parser) stay PRIVATE — consumers obtain maps
+// via VacuumDevice.getMap()/currentSegmentId/lastMap and MowerDevice.getMap()/
+// mapSvg(), all reachable through the already-exported device handles.
+export { renderVacuumPng } from './models/vacuum/map/render.js';
+export type { RenderVacuumPngOptions } from './models/vacuum/map/render.js';
+export type {
+  VacuumMap,
+  MapDimensions,
+  MapBoundingBox,
+  MapPoint,
+  MapPose,
+  MapRun,
+  MapLayer,
+  MapLayerType,
+  MapSegment,
+  MapPath,
+  MapPathType,
+  MapObstacle,
+  MapFrameType,
+  MapVirtualWall,
+  MapRestrictedArea,
+  MapLowLyingArea,
+  MapWallsInfo,
+  MapStorey,
+  MapRoom,
+  MapRoomWall,
+  MapCleanedAreaOverlay,
+} from './models/vacuum/map/types.js';
+
+export { renderMowerSvg } from './models/mower/map/render.js';
+export type { RenderMowerSvgOptions } from './models/mower/map/render.js';
+export type {
+  MowerMap,
+  MowerPoint,
+  MowerZone,
+  MowerSpotArea,
+  MowerPathEntry,
+  MowerContour,
+  MowerMapBoundary,
+  MowerMowPath,
+  MowerAvailableMap,
+} from './models/mower/map/types.js';

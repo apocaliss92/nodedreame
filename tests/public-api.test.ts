@@ -98,3 +98,73 @@ describe('public API surface (P4)', () => {
     expect('deviceClassFor' in api).toBe(false);
   });
 });
+
+describe('public API surface (P5 maps)', () => {
+  it('exports the vacuum map renderer', () => {
+    // VacuumMap and its sub-types are type-only exports (no runtime value); the
+    // renderer is the only runtime-value map export on the vacuum side. The
+    // decoder is intentionally NOT public — consumers obtain maps via
+    // VacuumDevice.getMap().
+    expect(typeof api.renderVacuumPng).toBe('function');
+  });
+
+  it('exports the mower map renderer', () => {
+    expect(typeof api.renderMowerSvg).toBe('function');
+  });
+
+  it('exposes maps via the already-exported device handles, not free functions', () => {
+    // getMap/mapSvg/currentSegmentId/lastMap are instance members reachable
+    // through VacuumDevice/MowerDevice — confirm those handles are present.
+    expect(typeof api.VacuumDevice).toBe('function');
+    expect(typeof api.MowerDevice).toBe('function');
+  });
+
+  it('does NOT leak vacuum map decode internals', () => {
+    for (const k of [
+      'unwrapEnvelope',
+      'parseMapHeader',
+      'parseFrame',
+      'sliceTailText',
+      'parseMapJsonTail',
+      'parseFloatField',
+      'parseIntField',
+      'decodePixelGridFsm1',
+      'collectSegments',
+      'classifyPixelFsm1',
+      'safeBase64ToUtf8',
+      'parsePathTr',
+      'parseObstacles',
+      'parseVirtualWalls',
+      'parseRestrictedArea',
+      'parseWallsInfo',
+      'parseLowLyingAreas',
+      'parseTailGeometry',
+      'isGeometryComplete',
+      'coalesceGeometry',
+      'parseCleanedAreaOverlay',
+      'decodeCleanedAreaPixels',
+      'mergePFrame',
+      'mergePFrameEnvelope',
+      'MapDecoder',
+      'OssFetcher',
+      'decodeVacuumMap',
+      'applyVacuumPFrame',
+      'MapDecodeError',
+    ]) {
+      expect(k in api).toBe(false);
+    }
+  });
+
+  it('does NOT leak mower map parser internals', () => {
+    for (const k of [
+      'parseBatchMapData',
+      'reassembleMapChunks',
+      'parseMowerMap',
+      'parseMowPaths',
+      'extractContourId',
+      'getBatchDeviceDatas',
+    ]) {
+      expect(k in api).toBe(false);
+    }
+  });
+});
