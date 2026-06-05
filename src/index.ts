@@ -42,3 +42,26 @@ export type {
   StateChangedEvent,
   DeviceEvent,
 } from './api/types.js';
+
+// --- Phase 3: vacuum model ------------------------------------------------
+// Public vacuum surface only: the typed VacuumDevice handle, its value enums,
+// and the capability records/resolver. Internal siid/piid/aiid property maps,
+// the model factory's property tables, and the decode helpers stay private.
+export { VacuumDevice } from './models/vacuum/vacuum-device.js';
+export type { CleanOpts } from './models/vacuum/vacuum-device.js';
+export {
+  MiotState,
+  ChargingStatus,
+  SuctionLevel,
+  WaterVolume,
+  CleaningMode,
+  MiotError,
+  TaskStatus,
+} from './models/vacuum/enums.js';
+export {
+  getVacuumCapabilities,
+  VacuumCapabilityResolver,
+  MODEL_CAPABILITIES as VACUUM_MODEL_CAPABILITIES,
+} from './models/vacuum/capabilities.js';
+export type { VacuumCapabilities } from './models/vacuum/capabilities.js';
+export { deviceClassFor } from './api/nodreame.js';
