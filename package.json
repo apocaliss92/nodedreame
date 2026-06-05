@@ -1,6 +1,9 @@
 {
-  "name": "nodedreame",
+  "name": "@apocaliss92/nodedreame",
   "version": "1.0.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "Node.js/TypeScript client for Dreame vacuums and mowers via the Dreamehome cloud",
   "license": "MIT",
   "author": "apocaliss92",

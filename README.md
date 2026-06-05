@@ -28,7 +28,7 @@ Under the hood:
 ## Usage
 
 ```ts
-import { Nodreame } from 'nodedreame';
+import { Nodreame } from '@apocaliss92/nodedreame';
 
 const client = new Nodreame({
   username: process.env.DREAME_USERNAME!,
@@ -67,7 +67,7 @@ subclass of the generic handle), which adds typed, decoded state getters and
 capability-gated commands on top of the raw MIoT primitives.
 
 ```ts
-import { Nodreame, VacuumDevice, SuctionLevel } from 'nodedreame';
+import { Nodreame, VacuumDevice, SuctionLevel } from '@apocaliss92/nodedreame';
 
 const client = new Nodreame({
   username: process.env.DREAME_USERNAME!,
@@ -137,7 +137,7 @@ subclass of the generic handle) with typed, decoded state getters and
 capability-gated commands, mirroring the vacuum surface.
 
 ```ts
-import { Nodreame, MowerDevice } from 'nodedreame';
+import { Nodreame, MowerDevice } from '@apocaliss92/nodedreame';
 
 const client = new Nodreame({
   username: process.env.DREAME_USERNAME!,
@@ -212,8 +212,8 @@ import {
   DreameApiError,
   DreameDeviceOfflineError,
   DreameTransportError,
-} from 'nodedreame';
-import type { DreameSession, DreameDevice, MiotProp } from 'nodedreame';
+} from '@apocaliss92/nodedreame';
+import type { DreameSession, DreameDevice, MiotProp } from '@apocaliss92/nodedreame';
 ```
 
 ## Maps
@@ -233,8 +233,8 @@ the cleaned-area overlay. `renderVacuumPng(map)` rasterises it to a PNG
 `Buffer` via `pngjs`.
 
 ```ts
-import { renderVacuumPng } from 'nodedreame';
-import type { VacuumMap } from 'nodedreame';
+import { renderVacuumPng } from '@apocaliss92/nodedreame';
+import type { VacuumMap } from '@apocaliss92/nodedreame';
 import { writeFile } from 'node:fs/promises';
 
 // `filename` is the OSS object name advertised on the map PATH push (siid 6,
@@ -263,8 +263,8 @@ navigation paths, contours, mow-path tracks and the map boundary.
 string of the geometry.
 
 ```ts
-import { renderMowerSvg } from 'nodedreame';
-import type { MowerMap } from 'nodedreame';
+import { renderMowerSvg } from '@apocaliss92/nodedreame';
+import type { MowerMap } from '@apocaliss92/nodedreame';
 import { writeFile } from 'node:fs/promises';
 
 const map: MowerMap = await mower.getMap();
@@ -291,7 +291,7 @@ are MIT — see `LICENSE`.
 ## Install
 
 ```bash
-npm install nodedreame
+npm install @apocaliss92/nodedreame
 ```
 
 ## License
