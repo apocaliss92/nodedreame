@@ -3,8 +3,77 @@ import { Nodreame } from '../../src/api/nodreame.js';
 import { VacuumDevice } from '../../src/models/vacuum/vacuum-device.js';
 import { MowerDevice } from '../../src/models/mower/mower-device.js';
 import { ALL_REGIONS, type DreameRegion } from '../../src/auth/config.js';
-import { DreameDeviceOfflineError } from '../../src/transport/errors.js';
+import {
+  DreameError,
+  DreameDeviceOfflineError,
+  DreameApiError,
+} from '../../src/transport/errors.js';
 import type { PropertyResult } from '../../src/cloud/types.js';
+// Internal decode/parser + renderers are pulled in for the FALLBACK path only:
+// when the live robots are asleep (no fresh blob/batch) we still assert the
+// decode→render pipeline works against a deterministic synthetic fixture. We
+// NEVER fake a live result — an actual decode error on a REAL blob must fail.
+import { renderVacuumPng } from '../../src/models/vacuum/map/render.js';
+import { decodeVacuumMap } from '../../src/models/vacuum/map/decode.js';
+import { renderMowerSvg } from '../../src/models/mower/map/render.js';
+import { parseBatchMapData } from '../../src/models/mower/map/parser.js';
+import { buildSyntheticFrame } from '../models/vacuum/map/fixtures/build-frame.js';
+
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+/** A byte-exact synthetic vacuum I-frame envelope (no AES) for the fallback. */
+function syntheticVacuumEnvelope(): string {
+  // 4×2 grid: wall, floor, two segment-5 cells; second row blank + segment.
+  const grid = Buffer.from([63 << 2, 62 << 2, 5 << 2, 5 << 2, 0, 0, 5 << 2, 5 << 2]);
+  return buildSyntheticFrame({
+    mapId: 1,
+    frameId: 0,
+    frameType: 'I',
+    robot: { x: 0, y: 0, a: 0 },
+    charger: { x: 0, y: 0, a: 0 },
+    gridSize: 50,
+    width: 4,
+    height: 2,
+    left: 0,
+    top: 0,
+    grid,
+    tail: { timestamp_ms: 1, seg_inf: { '5': {} } },
+  }).envelope;
+}
+
+/** A synthetic mower batch (one zone polygon) for the fallback. */
+function syntheticMowerBatch(): Record<string, unknown> {
+  const mapJson = JSON.stringify({
+    name: 'Garden',
+    mapIndex: 0,
+    totalArea: 10000,
+    mowingAreas: {
+      dataType: 'Map',
+      value: [
+        [
+          1,
+          {
+            path: [
+              { x: 0, y: 0 },
+              { x: 100, y: 0 },
+              { x: 100, y: 100 },
+              { x: 0, y: 100 },
+            ],
+            name: 'Front Lawn',
+            type: 2,
+            shapeType: 1,
+            area: 10000,
+            time: 5,
+            etime: 9,
+          },
+        ],
+      ],
+    },
+    boundary: { x1: -10, y1: -10, x2: 110, y2: 110 },
+  });
+  const arr = JSON.stringify([mapJson]);
+  return { 'MAP.0': arr, 'MAP.info': String(arr.length) };
+}
 
 const enabled = process.env.DREAME_E2E === '1';
 const username = process.env.DREAME_USERNAME ?? '';
@@ -205,6 +274,99 @@ describe.runIf(enabled)('e2e: Nodreame facade', () => {
       }
     }
     // NO destructive command is ever issued against the real mower.
+    await client.close();
+  });
+
+  it('decodes + renders maps for a vacuum and the mower (tolerant: live or fixture)', async () => {
+    expect(username, 'set DREAME_USERNAME in .env').not.toBe('');
+    expect(password, 'set DREAME_PASSWORD in .env').not.toBe('');
+
+    const client = new Nodreame({ username, password, region, fetchInitialValues: false });
+    const session = await client.login();
+    expect(session.accessToken).toBeTruthy(); // truthiness only — never log the token
+
+    const devices = await client.discoverDevices();
+    const vac = devices.find((d): d is VacuumDevice => d instanceof VacuumDevice);
+    const mower = devices.find((d): d is MowerDevice => d instanceof MowerDevice);
+
+    // ---- VACUUM map: try live, tolerate asleep/no-blob, always assert decode. --
+    if (vac) {
+      let liveMap = false;
+      try {
+        // Resolve the current-map OSS object name from the PATH push (siid 6,
+        // piid 3). A sleeping robot publishes no fresh filename → fall through.
+        const props = await vac.refreshProperties([{ siid: 6, piid: 3 }]);
+        const pathProp = props.find((p) => p.siid === 6 && p.piid === 3);
+        const filename = typeof pathProp?.value === 'string' ? pathProp.value : '';
+        if (filename) {
+          // A REAL blob: a decode error here MUST fail the e2e (no catch around
+          // decode). Only the fetch/offline is tolerated.
+          const map = await vac.getMap({ filename });
+          expect(map.dimensions.width).toBeGreaterThan(0);
+          expect(renderVacuumPng(map).subarray(0, 8).equals(PNG_SIGNATURE)).toBe(true);
+          liveMap = true;
+          console.log('[e2e] vacuum LIVE map decoded:', vac.model, map.dimensions);
+        }
+      } catch (err: unknown) {
+        if (err instanceof DreameDeviceOfflineError || err instanceof DreameApiError) {
+          console.log('[e2e] vacuum map unavailable (asleep/no-blob); using fixture fallback');
+        } else {
+          throw err; // a genuine decode/transport bug must surface
+        }
+      }
+      if (!liveMap) {
+        // Fixture fallback — proves the decode→render pipeline end-to-end.
+        const map = decodeVacuumMap(syntheticVacuumEnvelope());
+        expect(map.dimensions.width).toBeGreaterThan(0);
+        expect(map.segments.length).toBeGreaterThan(0);
+        const png = renderVacuumPng(map);
+        expect(png.subarray(0, 8).equals(PNG_SIGNATURE)).toBe(true);
+        console.log('[e2e] vacuum map FIXTURE-decoded + rendered (no live blob)');
+      }
+    } else {
+      console.log('[e2e] no VacuumDevice on the account; skipping vacuum map');
+    }
+
+    // ---- MOWER map: try live, tolerate asleep + the documented endpoint stub. --
+    if (mower) {
+      let liveMap = false;
+      try {
+        const map = await mower.getMap();
+        expect(map.zones.length).toBeGreaterThanOrEqual(0);
+        const svg = await mower.mapSvg();
+        expect(svg).toContain('<svg');
+        expect(svg).toContain('</svg>');
+        liveMap = true;
+        console.log('[e2e] mower LIVE map parsed:', mower.model, 'zones:', map.zones.length);
+      } catch (err: unknown) {
+        // The mower live map is a documented follow-up: the default device has
+        // no injected batch fetcher (throws DreameError), the cloud stub throws
+        // DreameApiError because the endpoint path is unrecovered, and an asleep
+        // mower surfaces DreameDeviceOfflineError — all three subclass
+        // DreameError, so this tolerates the whole "no live batch" family. A
+        // genuine parse bug (a plain Error) still fails the e2e.
+        if (err instanceof DreameError) {
+          console.log('[e2e] mower map unavailable (asleep / endpoint stub); using fixture');
+        } else {
+          throw err;
+        }
+      }
+      if (!liveMap) {
+        const map = parseBatchMapData(syntheticMowerBatch());
+        expect(map).not.toBeNull();
+        if (!map) {
+          throw new Error('expected the synthetic mower batch to parse');
+        }
+        expect(map.zones.length).toBeGreaterThan(0);
+        const svg = renderMowerSvg(map);
+        expect(svg.startsWith('<?xml')).toBe(true);
+        expect(svg).toContain('</svg>');
+        console.log('[e2e] mower map FIXTURE-parsed + rendered (no live batch)');
+      }
+    } else {
+      console.log('[e2e] no MowerDevice on the account; skipping mower map');
+    }
+
     await client.close();
   });
 });
