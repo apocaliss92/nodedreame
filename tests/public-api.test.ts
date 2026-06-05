@@ -199,3 +199,33 @@ describe('public API surface (fetcher-injection types)', () => {
     expect(src).toMatch(/export\s+type\s+\{[^}]*\bOssFetcherLike\b/s);
   });
 });
+
+describe('public API surface (diagnostics dump)', () => {
+  // Source-level checks read src/index.ts so they pass WITHOUT a prior build.
+  const src = readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8');
+
+  it('exports createDumper + createClientDumper', () => {
+    expect(typeof api.createDumper).toBe('function');
+    expect(typeof api.createClientDumper).toBe('function');
+  });
+
+  it('exports the DeviceDump + DumperOptions types (source-level, build-independent)', () => {
+    expect(src).toMatch(/export\s+type\s+\{[^}]*\bDeviceDump\b/s);
+    expect(src).toMatch(/export\s+type\s+\{[^}]*\bDumperOptions\b/s);
+  });
+
+  it('does NOT leak dumper/redact/schema internals', () => {
+    for (const k of [
+      'Dumper',
+      'redact',
+      'REDACTED',
+      'DeviceDumpSchema',
+      'PropertyAccumulator',
+      'buildCatalog',
+      'vacuumDecoders',
+      'mowerDecoders',
+    ]) {
+      expect(k in api).toBe(false);
+    }
+  });
+});

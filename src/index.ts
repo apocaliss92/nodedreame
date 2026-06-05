@@ -140,3 +140,12 @@ export type {
   MowerMowPath,
   MowerAvailableMap,
 } from './models/mower/map/types.js';
+
+// --- Diagnostics: read-only device dump ----------------------------------
+// Public surface: the createDumper/createClientDumper factories + the shared
+// DeviceDump output type + the options type. The Dumper class, redact(), the
+// DeviceDumpSchema, the accumulator, and the per-model decoder/catalog helpers
+// stay PRIVATE — consumers build a dump only via the factory.
+export { createDumper, createClientDumper } from './diagnostics/dumper.js';
+export type { DumperOptions } from './diagnostics/dumper.js';
+export type { DeviceDump } from './diagnostics/dump-format.js';
