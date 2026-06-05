@@ -5,10 +5,9 @@
  * with no banned cast.
  */
 
-/** Coerce a raw MIoT value to a number, or null. */
-export function asNum(value: unknown): number | null {
-  return typeof value === 'number' ? value : null;
-}
+// asNum now lives in the shared module so vacuum + mower share one cast-free
+// implementation. parseFaultList / enumMembers stay vacuum-specific below.
+export { asNum } from '../_shared/decode.js';
 
 /** Numeric members of a TS numeric enum object (ascending insertion order). */
 export function enumMembers(enumObj: Record<string, unknown>): number[] {

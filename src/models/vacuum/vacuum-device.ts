@@ -16,6 +16,7 @@ import {
   WaterVolume,
 } from './enums.js';
 import { asNum, parseFaultList } from './decode.js';
+import { enumLookup } from '../_shared/decode.js';
 import {
   VacuumCapabilityResolver,
   getVacuumCapabilities,
@@ -28,16 +29,6 @@ export interface CleanOpts {
   repeats?: number;
   fan?: number;
   water?: number;
-}
-
-/**
- * Cast-free enum narrower: returns the matching ENUM-typed member or null.
- * `members.find(...)` is already `E | undefined`, so no banned cast is needed
- * to narrow a raw number back to an enum literal.
- */
-function enumLookup<E extends number>(members: readonly E[]): (n: number | null) => E | null {
-  const set = new Set<number>(members);
-  return (n) => (n !== null && set.has(n) ? (members.find((m) => m === n) ?? null) : null);
 }
 
 const SUCTION = enumLookup<SuctionLevel>([
