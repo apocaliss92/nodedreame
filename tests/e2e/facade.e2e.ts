@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Nodreame } from '../../src/api/nodreame.js';
+import { VacuumDevice } from '../../src/models/vacuum/vacuum-device.js';
 import { ALL_REGIONS, type DreameRegion } from '../../src/auth/config.js';
 import { DreameDeviceOfflineError } from '../../src/transport/errors.js';
 import type { PropertyResult } from '../../src/cloud/types.js';
@@ -92,6 +93,73 @@ describe.runIf(enabled)('e2e: Nodreame facade', () => {
       // succeeded end-to-end (cloud reachable, offline correctly surfaced).
       expect(offlineCount).toBe(devices.length);
       console.log('[e2e] all devices offline/sleeping; live round-trip verified via offline path');
+    }
+
+    await client.close();
+  });
+
+  it('discovers a VacuumDevice and reads its typed state (tolerating sleeping robots)', async () => {
+    expect(username, 'set DREAME_USERNAME in .env').not.toBe('');
+    expect(password, 'set DREAME_PASSWORD in .env').not.toBe('');
+
+    const client = new Nodreame({
+      username,
+      password,
+      region,
+      fetchInitialValues: false,
+    });
+
+    const session = await client.login();
+    expect(session.accessToken).toBeTruthy(); // truthiness only — never log the token
+    expect(session.uid).toBeTruthy();
+
+    const devices = await client.discoverDevices();
+    // The account owns at least one dreame.vacuum.* robot.
+    const vac = devices.find((d): d is VacuumDevice => d instanceof VacuumDevice);
+    expect(vac, 'account should expose at least one VacuumDevice').toBeInstanceOf(VacuumDevice);
+    const vacuumCount = devices.filter((d) => d instanceof VacuumDevice).length;
+    console.log('[e2e] vacuum count:', vacuumCount, 'of', devices.length, 'devices');
+    if (!vac) {
+      await client.close();
+      return;
+    }
+
+    // r2538z caps are ASSUMED from the r2532a sibling — assert SHAPE, not the
+    // verified flag value.
+    expect(typeof vac.vacuumCapabilities.canMop).toBe('boolean');
+    expect(typeof vac.vacuumCapabilities.verified).toBe('boolean');
+
+    // Seed the cache with a single live read of the vacuum's known props.
+    // A sleeping/offline robot legitimately answers with a device-offline error
+    // from the cloud — that is a valid end-to-end round-trip (the request
+    // reached the cloud, the cloud reported the device unreachable). We accept
+    // either path and NEVER assert a specific value.
+    let online = false;
+    try {
+      const results = await vac.refreshProperties([...VacuumDevice.DEFAULT_PROPS]);
+      expect(Array.isArray(results)).toBe(true);
+      // Shape-only assertions: the typed getters either decode a number/enum or
+      // return null; both are valid. No value assertions.
+      expect(vac.battery === null || typeof vac.battery === 'number').toBe(true);
+      expect(vac.status === null || typeof vac.status === 'number').toBe(true);
+      expect(vac.suction === null || typeof vac.suction === 'number').toBe(true);
+      expect(Array.isArray(vac.faults)).toBe(true);
+      online = true;
+      console.log('[e2e] vacuum typed-state read OK:', vac.model, '(props:', results.length, ')');
+    } catch (err: unknown) {
+      if (err instanceof DreameDeviceOfflineError) {
+        console.log('[e2e] vacuum offline/sleeping; round-trip verified via offline path');
+      } else {
+        throw err;
+      }
+    }
+
+    // Optional GUARDED safe command — only if the robot is actually online AND
+    // the operator opts in (double-gated so a normal e2e run never beeps the
+    // user's robots).
+    if (online && process.env.DREAME_E2E_LOCATE === '1') {
+      await vac.locate();
+      console.log('[e2e] locate() dispatched');
     }
 
     await client.close();
