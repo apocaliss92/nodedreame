@@ -156,3 +156,69 @@ describe('BaseDevice — construction & reads', () => {
     expect(action).toEqual({ siid: 4, aiid: 1, in: [{ piid: 1, value: 2 }] });
   });
 });
+
+describe('BaseDevice — cache & events from push', () => {
+  it('mirrors a properties push into the cache and emits per-prop + aggregate', async () => {
+    const { deps, push } = makeDeps();
+    const d = new BaseDevice({
+      device,
+      region: 'eu',
+      sessionRef: () => session('T'),
+      deps,
+      fetchInitialValues: false,
+    });
+    const perProp: number[] = [];
+    let aggregate: number | null = null;
+    d.on('propertyChanged', (e) => perProp.push(e.siid));
+    d.on('stateChanged', (e) => {
+      aggregate = e.changes.length;
+    });
+    await d.start();
+
+    push.emitProperties([
+      { did: 'DID1', siid: 2, piid: 1, value: 10 },
+      { did: 'DID1', siid: 3, piid: 1, value: 20 },
+    ]);
+
+    expect(d.getProperty(2, 1)?.value).toBe(10);
+    expect(d.getProperty(3, 1)?.value).toBe(20);
+    expect(perProp).toEqual([2, 3]);
+    expect(aggregate).toBe(2);
+  });
+
+  it('reports previousValue on a subsequent change to the same property', async () => {
+    const { deps, push } = makeDeps();
+    const d = new BaseDevice({
+      device,
+      region: 'eu',
+      sessionRef: () => session('T'),
+      deps,
+      fetchInitialValues: false,
+    });
+    const seen: { value: unknown; previousValue: unknown }[] = [];
+    d.on('propertyChanged', (e) => seen.push({ value: e.value, previousValue: e.previousValue }));
+    await d.start();
+
+    push.emitProperties([{ did: 'DID1', siid: 2, piid: 1, value: 10 }]);
+    push.emitProperties([{ did: 'DID1', siid: 2, piid: 1, value: 11 }]);
+
+    expect(seen[0]).toEqual({ value: 10, previousValue: null });
+    expect(seen[1]).toEqual({ value: 11, previousValue: 10 });
+  });
+
+  it('emits a typed device event on an event push', async () => {
+    const { deps, push } = makeDeps();
+    const d = new BaseDevice({
+      device,
+      region: 'eu',
+      sessionRef: () => session('T'),
+      deps,
+      fetchInitialValues: false,
+    });
+    const events: { siid: number; eiid: number }[] = [];
+    d.on('event', (e) => events.push({ siid: e.siid, eiid: e.eiid }));
+    await d.start();
+    push.emit('event', { did: 'DID1', siid: 4, eiid: 1, arguments: [] });
+    expect(events).toEqual([{ siid: 4, eiid: 1 }]);
+  });
+});
