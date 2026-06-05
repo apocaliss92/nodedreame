@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Nodreame } from '../../src/api/nodreame.js';
 import { VacuumDevice } from '../../src/models/vacuum/vacuum-device.js';
+import { MowerDevice } from '../../src/models/mower/mower-device.js';
 import { ALL_REGIONS, type DreameRegion } from '../../src/auth/config.js';
 import { DreameDeviceOfflineError } from '../../src/transport/errors.js';
 import type { PropertyResult } from '../../src/cloud/types.js';
@@ -162,6 +163,48 @@ describe.runIf(enabled)('e2e: Nodreame facade', () => {
       console.log('[e2e] locate() dispatched');
     }
 
+    await client.close();
+  });
+
+  it('discovers a MowerDevice and reads its typed state (tolerating an asleep mower)', async () => {
+    expect(username, 'set DREAME_USERNAME in .env').not.toBe('');
+    expect(password, 'set DREAME_PASSWORD in .env').not.toBe('');
+
+    const client = new Nodreame({ username, password, region, fetchInitialValues: false });
+    const session = await client.login();
+    expect(session.accessToken).toBeTruthy(); // truthiness only — never log the token
+    expect(session.uid).toBeTruthy();
+
+    const devices = await client.discoverDevices();
+    const mower = devices.find((d): d is MowerDevice => d instanceof MowerDevice);
+    expect(mower, 'account should expose at least one MowerDevice').toBeInstanceOf(MowerDevice);
+    console.log('[e2e] mower count:', devices.filter((d) => d instanceof MowerDevice).length);
+    if (!mower) {
+      await client.close();
+      return;
+    }
+
+    // p2255 caps are ASSUMED — assert SHAPE, never the verified flag value.
+    expect(typeof mower.mowerCapabilities.canMowZones).toBe('boolean');
+    expect(typeof mower.mowerCapabilities.verified).toBe('boolean');
+
+    try {
+      const results = await mower.refreshProperties([...MowerDevice.DEFAULT_PROPS]);
+      expect(Array.isArray(results)).toBe(true);
+      // Shape-only: getters either decode a value/enum/object or return null.
+      expect(mower.battery === null || typeof mower.battery === 'number').toBe(true);
+      expect(mower.status === null || typeof mower.status === 'number').toBe(true);
+      expect(mower.task === null || typeof mower.task === 'object').toBe(true);
+      expect(mower.controlAction === null || typeof mower.controlAction === 'number').toBe(true);
+      console.log('[e2e] mower typed-state read OK:', mower.model, '(props:', results.length, ')');
+    } catch (err: unknown) {
+      if (err instanceof DreameDeviceOfflineError) {
+        console.log('[e2e] mower offline/sleeping; round-trip verified via offline path');
+      } else {
+        throw err;
+      }
+    }
+    // NO destructive command is ever issued against the real mower.
     await client.close();
   });
 });
