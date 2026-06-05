@@ -424,6 +424,22 @@ describe.runIf(enabled)('e2e: Nodreame facade', () => {
             `commands=${dump.catalog.commands?.length ?? 0} ` +
             `unmapped=${unmappedFindings.length ? unmappedFindings.join(',') : 'none'}`,
         );
+
+        // FIX 4 — exercise the raw-frame path (where the real `did` lands as
+        // `deviceId`, and OSS-path property values appear). A brief window, then
+        // assert ZERO secrets in the captured-frame JSON too. We NEVER print it.
+        const rawDumper = createDumper(device, { captureRawFrames: true, refreshIntervalMs: 0 });
+        await rawDumper.start();
+        await new Promise((r) => setTimeout(r, 1000));
+        await rawDumper.stop();
+        const rawJson = rawDumper.exportJson();
+        for (const secret of secrets) {
+          expect(rawJson.includes(secret)).toBe(false);
+        }
+        console.log(
+          `[e2e] rawFrames dump ${dump.device.model}: zero-secrets OK ` +
+            `(probed ${secrets.length} secret(s))`,
+        );
       }
     } finally {
       await client.close();

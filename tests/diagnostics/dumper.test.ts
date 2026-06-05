@@ -361,6 +361,32 @@ describe('Dumper export', () => {
     expect(json).toContain('[redacted]');
   });
 
+  // FIX 1 — the real `did` is set as `deviceId` on raw payloads; with
+  // captureRawFrames it must NOT survive into the exported JSON.
+  it('scrubs the real deviceId from raw frames (captureRawFrames) — FIX 1', async () => {
+    const dev = new FakeDevice();
+    dev.deviceId = 'REAL-DID-123456789';
+    const dumper = createDumper(dev, { captureRawFrames: true, refreshIntervalMs: 0 });
+    await dumper.start();
+    dev.emitProperty(2, 1, 6); // raw payload carries deviceId = the real did
+    await dumper.stop();
+    const json = dumper.exportJson();
+    expect(json).not.toContain('REAL-DID-123456789');
+    expect(json).toContain('[redacted]');
+  });
+
+  // FIX 2 — a propertyChanged value that is an OSS object path embeds uid/did.
+  it('scrubs an OSS-path property VALUE (uid/did) end-to-end — FIX 2', async () => {
+    const dev = new FakeDevice();
+    const dumper = createDumper(dev, { captureRawFrames: true, refreshIntervalMs: 0 });
+    await dumper.start();
+    dev.emitProperty(6, 3, 'ali_dreame/UID123/DID456/0');
+    await dumper.stop();
+    const json = dumper.exportJson();
+    expect(json).not.toContain('UID123');
+    expect(json).not.toContain('DID456');
+  });
+
   it('exportJson is deterministic for the same observations', async () => {
     const build = async (): Promise<string> => {
       const dev = new FakeDevice();
@@ -431,5 +457,20 @@ describe('Dumper is strictly read-only', () => {
     expect(obs.unmapped).toEqual([99]); // the discovery signal
     expect(obs.enum).toBe('MowerTaskStatus');
     expect(dumper.export().device.type).toBe('mower');
+  });
+
+  // FIX 4 — familyOf's `dreame.mower.*` model-prefix branch for a non-BaseDevice
+  // fake (the previously uncovered branch; the FakeDevice default is a vacuum).
+  it('classifies a non-BaseDevice fake by its dreame.mower.* model prefix', async () => {
+    const dev = new FakeDevice();
+    dev.model = 'dreame.mower.p2255';
+    dev.capabilities = { model: dev.model, has: (): boolean => false, list: (): string[] => [] };
+    const dumper = createDumper(dev, { refreshIntervalMs: 0 });
+    await dumper.start();
+    dev.emitProperty(5, 104, 7); // SpotIncomplete — mower decoder must apply
+    await dumper.stop();
+    const dump = dumper.export();
+    expect(dump.device.type).toBe('mower');
+    expect(dump.observations.properties['5.104']?.enum).toBe('MowerTaskStatus');
   });
 });
