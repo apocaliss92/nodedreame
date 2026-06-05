@@ -222,3 +222,86 @@ describe('BaseDevice — cache & events from push', () => {
     expect(events).toEqual([{ siid: 4, eiid: 1 }]);
   });
 });
+
+describe('BaseDevice — poll fallback', () => {
+  it('polls getProperties while MQTT is down and stops once it reconnects', async () => {
+    vi.useFakeTimers();
+    try {
+      const getProperties = vi.fn(async () => [{ siid: 2, piid: 1, value: 1 }] as PropertyResult[]);
+      const { deps, push } = makeDeps({ getProperties });
+      const d = new BaseDevice({
+        device,
+        region: 'eu',
+        sessionRef: () => session('T'),
+        deps,
+        fetchInitialValues: false,
+        initialProps: [{ siid: 2, piid: 1 }],
+        pollIntervalMs: 1000,
+      });
+      await d.start(); // connect => healthy => no polling
+      expect(getProperties).not.toHaveBeenCalled();
+
+      push.emit('close'); // MQTT down => start polling
+      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(getProperties).toHaveBeenCalledTimes(2);
+
+      push.emit('connect'); // MQTT back => stop polling
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(getProperties).toHaveBeenCalledTimes(2); // no further polls
+
+      await d.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not poll when pollIntervalMs is 0', async () => {
+    vi.useFakeTimers();
+    try {
+      const getProperties = vi.fn(async () => [] as PropertyResult[]);
+      const { deps, push } = makeDeps({ getProperties });
+      const d = new BaseDevice({
+        device,
+        region: 'eu',
+        sessionRef: () => session('T'),
+        deps,
+        fetchInitialValues: false,
+        initialProps: [{ siid: 2, piid: 1 }],
+        pollIntervalMs: 0,
+      });
+      await d.start();
+      push.emit('close');
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(getProperties).not.toHaveBeenCalled();
+      await d.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('close() clears the poll timer', async () => {
+    vi.useFakeTimers();
+    try {
+      const getProperties = vi.fn(async () => [] as PropertyResult[]);
+      const { deps, push } = makeDeps({ getProperties });
+      const d = new BaseDevice({
+        device,
+        region: 'eu',
+        sessionRef: () => session('T'),
+        deps,
+        fetchInitialValues: false,
+        initialProps: [{ siid: 2, piid: 1 }],
+        pollIntervalMs: 1000,
+      });
+      await d.start();
+      push.emit('close'); // polling armed
+      await d.close();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(getProperties).not.toHaveBeenCalled();
+      expect(push.closed).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
