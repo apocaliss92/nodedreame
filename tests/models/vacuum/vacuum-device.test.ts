@@ -203,4 +203,25 @@ describe('VacuumDevice state getters', () => {
     expect(v.vacuumCapabilities.verified).toBe(false); // r2538z assumed
     expect(v.capabilities.has('mop')).toBe(true); // inherited generic tokens
   });
+
+  it('exposes the supported suction/water enum sets for r2538z', () => {
+    const v = new VacuumDevice({
+      device: fakeDevice('dreame.vacuum.r2538z'),
+      region: 'eu',
+      sessionRef: fakeSession,
+      deps: depsReturning([]),
+      fetchInitialValues: false,
+    });
+    expect(v.supportedSuctionLevels).toEqual([
+      SuctionLevel.Quiet,
+      SuctionLevel.Standard,
+      SuctionLevel.Intense,
+      SuctionLevel.Max,
+    ]);
+    expect(v.supportedWaterVolumes).toEqual([
+      WaterVolume.Low,
+      WaterVolume.Medium,
+      WaterVolume.High,
+    ]);
+  });
 });

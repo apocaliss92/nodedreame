@@ -84,6 +84,7 @@ export {
   MowerChargingStatus,
   MowerControlAction,
   MowerTaskStatus,
+  MowerFault,
 } from './models/mower/enums.js';
 export {
   getMowerCapabilities,

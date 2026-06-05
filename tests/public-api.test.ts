@@ -75,6 +75,7 @@ describe('public API surface (P4)', () => {
     expect(api.MowerChargingStatus.Charging).toBe(1);
     expect(api.MowerControlAction.Pause).toBe(4);
     expect(typeof api.MowerTaskStatus).toBe('object');
+    expect(api.MowerFault.EmergencyStop).toBe(23);
   });
 
   it('exports the mower capability helpers', () => {

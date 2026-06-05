@@ -126,6 +126,19 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
     return this.#caps;
   }
 
+  /**
+   * The suction levels this model supports, as a {@link SuctionLevel} enum array
+   * (from the capability record). Lets a consumer see which fan speeds are
+   * selectable without reaching into {@link vacuumCapabilities}.
+   */
+  get supportedSuctionLevels(): readonly SuctionLevel[] {
+    return this.#caps.supportedSuctionLevels;
+  }
+  /** The water/mop volumes this model supports, as a {@link WaterVolume} enum array. */
+  get supportedWaterVolumes(): readonly WaterVolume[] {
+    return this.#caps.supportedWaterVolumes;
+  }
+
   #num(siid: number, piid: number): number | null {
     return asNum(this.getProperty(siid, piid)?.value);
   }

@@ -5,6 +5,8 @@ import {
   MowerStatus,
   MowerChargingStatus,
   MowerControlAction,
+  MowerTaskStatus,
+  MowerFault,
 } from '../../../src/models/mower/enums.js';
 import type { BaseDeviceDeps, PushLike } from '../../../src/device/base-device.js';
 import type { DreameDevice, DreameSession, PropertyResult } from '../../../src/cloud/types.js';
@@ -179,5 +181,66 @@ describe('MowerDevice typed state getters', () => {
     expect(m.controlStatus).toBeNull();
     expect(m.chargingRaw).toBeNull();
     expect(m.charging).toBeNull();
+  });
+
+  it('decodes taskStatus to the enum when documented, raw otherwise', async () => {
+    const m = new MowerDevice({
+      device: fakeDevice(),
+      region: 'eu',
+      sessionRef: fakeSession,
+      deps: depsReturning([{ siid: 5, piid: 104, value: 7, code: 0 }]),
+      fetchInitialValues: false,
+    });
+    await m.start();
+    await m.refreshProperties([{ siid: 5, piid: 104 }]);
+    expect(m.taskStatusRaw).toBe(7);
+    expect(m.taskStatus).toBe(MowerTaskStatus.SpotIncomplete);
+    await m.close();
+  });
+
+  it('taskStatus returns null for codes the donor leaves "Unknown" (raw preserved)', async () => {
+    // Donor marks 2/3/10/13 as "Unknown task status: N" — they MUST stay raw.
+    const m = new MowerDevice({
+      device: fakeDevice(),
+      region: 'eu',
+      sessionRef: fakeSession,
+      deps: depsReturning([{ siid: 5, piid: 104, value: 10, code: 0 }]),
+      fetchInitialValues: false,
+    });
+    await m.start();
+    await m.refreshProperties([{ siid: 5, piid: 104 }]);
+    expect(m.taskStatusRaw).toBe(10);
+    expect(m.taskStatus).toBeNull();
+    await m.close();
+  });
+
+  it('decodes the device-code fault (2:2) to MowerFault, raw preserved', async () => {
+    const m = new MowerDevice({
+      device: fakeDevice(),
+      region: 'eu',
+      sessionRef: fakeSession,
+      deps: depsReturning([{ siid: 2, piid: 2, value: 23, code: 0 }]),
+      fetchInitialValues: false,
+    });
+    await m.start();
+    await m.refreshProperties([{ siid: 2, piid: 2 }]);
+    expect(m.faultRaw).toBe(23);
+    expect(m.fault).toBe(MowerFault.EmergencyStop);
+    await m.close();
+  });
+
+  it('fault returns null for an undocumented code (honest raw fallback)', async () => {
+    const m = new MowerDevice({
+      device: fakeDevice(),
+      region: 'eu',
+      sessionRef: fakeSession,
+      deps: depsReturning([{ siid: 2, piid: 2, value: 999, code: 0 }]),
+      fetchInitialValues: false,
+    });
+    await m.start();
+    await m.refreshProperties([{ siid: 2, piid: 2 }]);
+    expect(m.faultRaw).toBe(999);
+    expect(m.fault).toBeNull();
+    await m.close();
   });
 });

@@ -57,4 +57,47 @@ describe('vacuum enums (ported from node-dreame)', () => {
     expect(TaskStatus.OnDockIdle).toBe(6);
     expect(TaskStatus.NeedsIntervention).toBe(14);
   });
+
+  it('MiotState gains the donor-documented codes that were missing', () => {
+    // VERIFIED set preserved; donor (DreameVacuumState) codes added.
+    expect(MiotState.ReturningToDrain).toBe(31);
+    expect(MiotState.Draining).toBe(32);
+    expect(MiotState.Emptying).toBe(34);
+    expect(MiotState.DustBagDrying).toBe(35);
+    expect(MiotState.HeadingToExtraCleaning).toBe(37);
+    expect(MiotState.ExtraCleaning).toBe(38);
+    expect(MiotState.FindingPet).toBe(96);
+    expect(MiotState.Sanitizing).toBe(103);
+    expect(MiotState.FloorMaintaining).toBe(107);
+  });
+
+  it('MiotError now covers the full donor DreameVacuumErrorCode table', () => {
+    // A sample of newly-added documented codes from types.py.
+    expect(MiotError.Cliff).toBe(2);
+    expect(MiotError.Brush).toBe(12);
+    expect(MiotError.LeftWheelMotor).toBe(15);
+    expect(MiotError.CameraFault).toBe(40);
+    expect(MiotError.LdsError).toBe(48);
+    expect(MiotError.NoGoZone).toBe(59);
+    expect(MiotError.RobotInHiddenRoom).toBe(78);
+    expect(MiotError.DirtyWaterTankFull).toBe(86);
+    expect(MiotError.MopCoverError).toBe(209);
+    expect(MiotError.ReturnToChargeFailed).toBe(1000);
+    // VERIFIED members retain their existing names + integers.
+    expect(MiotError.Clear).toBe(0);
+    expect(MiotError.RobotLifted).toBe(18);
+    expect(MiotError.MopPadsMissing).toBe(120);
+  });
+
+  it('TaskStatus gains the donor-documented codes that were missing', () => {
+    // VERIFIED live labels preserved on 1/2/3/6/12/14; donor codes filled in.
+    expect(TaskStatus.Completed).toBe(0);
+    expect(TaskStatus.SpotCleaning).toBe(4);
+    expect(TaskStatus.FastMapping).toBe(5);
+    expect(TaskStatus.MapCleaningPaused).toBe(10);
+    expect(TaskStatus.CruisingPath).toBe(20);
+    expect(TaskStatus.StationCleaning).toBe(27);
+    expect(TaskStatus.PetFinding).toBe(30);
+    expect(TaskStatus.CustomCleaningWashingPaused).toBe(33);
+  });
 });

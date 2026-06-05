@@ -8,7 +8,13 @@ import {
   buildSpotPayload,
   buildZonePayload,
 } from './properties.js';
-import { MowerChargingStatus, MowerControlAction, MowerStatus } from './enums.js';
+import {
+  MowerChargingStatus,
+  MowerControlAction,
+  MowerFault,
+  MowerStatus,
+  MowerTaskStatus,
+} from './enums.js';
 import {
   asNum,
   enumLookup,
@@ -57,6 +63,12 @@ const STATUS = enumLookup<MowerStatus>(
 );
 const CHARGING = enumLookup<MowerChargingStatus>(
   Object.values(MowerChargingStatus).filter((v): v is MowerChargingStatus => typeof v === 'number'),
+);
+const TASK_STATUS = enumLookup<MowerTaskStatus>(
+  Object.values(MowerTaskStatus).filter((v): v is MowerTaskStatus => typeof v === 'number'),
+);
+const FAULT = enumLookup<MowerFault>(
+  Object.values(MowerFault).filter((v): v is MowerFault => typeof v === 'number'),
 );
 
 /** A typed Dreame-mower handle (state + capability-gated commands). */
@@ -111,6 +123,25 @@ export class MowerDevice extends BaseDevice {
   }
   get taskStatusRaw(): number | null {
     return this.#num(MOWER_PROP.TASK_STATUS.siid, MOWER_PROP.TASK_STATUS.piid);
+  }
+  /**
+   * TASK_STATUS (5:104) decoded to {@link MowerTaskStatus}, or null. The donor
+   * names only code 7 (SpotIncomplete); codes 2/3/10/13 are documented "Unknown
+   * task status" and intentionally surface as raw via {@link taskStatusRaw}.
+   */
+  get taskStatus(): MowerTaskStatus | null {
+    return TASK_STATUS(this.taskStatusRaw);
+  }
+  get faultRaw(): number | null {
+    return this.#num(MOWER_PROP.DEVICE_CODE.siid, MOWER_PROP.DEVICE_CODE.piid);
+  }
+  /**
+   * DEVICE_CODE (2:2) decoded to a {@link MowerFault} (the donor's
+   * BASE_DEVICE_CODES registry, 0..73), or null for a model-specific/undocumented
+   * code — which still surfaces as the raw number via {@link faultRaw}.
+   */
+  get fault(): MowerFault | null {
+    return FAULT(this.faultRaw);
   }
   /** Parsed scheduling task descriptor (2:50), or null. */
   get task(): MowerTaskDescriptor | null {
@@ -264,6 +295,7 @@ export class MowerDevice extends BaseDevice {
   /** Props worth seeding on start() / polling — exported for the facade. */
   static readonly DEFAULT_PROPS = [
     MOWER_PROP.STATUS,
+    MOWER_PROP.DEVICE_CODE,
     MOWER_PROP.BATTERY,
     MOWER_PROP.CHARGING_STATUS,
     MOWER_PROP.TASK_STATUS,
