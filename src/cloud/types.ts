@@ -52,11 +52,16 @@ export interface PropertyWrite extends MiotProp {
   value: unknown;
 }
 
-/** Per-property result returned by the cloud. */
+/**
+ * Per-property result returned by the cloud. All fields are optional: the cloud
+ * response shape is not fully observed (the command path is not exercised by the
+ * live e2e), so we validate structure leniently rather than risk rejecting real
+ * data. Mirrors `PropertyResultSchema` in transport/schemas.ts.
+ */
 export interface PropertyResult {
-  siid: number;
-  piid: number;
+  siid?: number | undefined;
+  piid?: number | undefined;
   value?: unknown;
-  code?: number;
+  code?: number | undefined;
   [key: string]: unknown;
 }

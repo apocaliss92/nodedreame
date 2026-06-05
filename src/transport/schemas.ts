@@ -55,11 +55,16 @@ export const DeviceListResponseSchema = z
   .passthrough();
 export type DeviceListResponse = z.infer<typeof DeviceListResponseSchema>;
 
-/** Per-property result. `value`/extra keys are tolerated. */
+/**
+ * Per-property result. Lenient by design: every known field is OPTIONAL and
+ * extra keys pass through. This validates the STRUCTURE (each element must be
+ * an object) without rejecting real cloud responses whose exact shape we have
+ * not fully observed — the command path is not exercised by the live e2e.
+ */
 export const PropertyResultSchema = z
   .object({
-    siid: z.number(),
-    piid: z.number(),
+    siid: z.number().optional(),
+    piid: z.number().optional(),
     value: z.unknown().optional(),
     code: z.number().optional(),
   })

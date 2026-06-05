@@ -93,4 +93,26 @@ describe('result extraction', () => {
       getProperties({ session, region: 'eu', did: 'D', fetchImpl }, [{ siid: 2, piid: 1 }]),
     ).rejects.toBeInstanceOf(DreameApiError);
   });
+
+  it('throws DreameApiError when a result element is not an object', async () => {
+    const fetchImpl = vi.fn<FetchImpl>(async () => ok({ code: 0, data: { result: [42, 'nope'] } }));
+    await expect(
+      getProperties({ session, region: 'eu', did: 'D', fetchImpl }, [{ siid: 2, piid: 1 }]),
+    ).rejects.toBeInstanceOf(DreameApiError);
+  });
+
+  it('leniently parses result elements with missing known fields', async () => {
+    // Real cloud data we have not fully observed: an object without siid/piid
+    // and with extra keys must pass through, not be rejected.
+    const fetchImpl = vi.fn<FetchImpl>(async () =>
+      ok({ code: 0, data: { result: [{ value: 13, extra: 'x' }, { code: 0 }] } }),
+    );
+    const res = await getProperties({ session, region: 'eu', did: 'D', fetchImpl }, [
+      { siid: 2, piid: 1 },
+    ]);
+    expect(res).toHaveLength(2);
+    expect(res[0]?.value).toBe(13);
+    expect(res[0]?.extra).toBe('x');
+    expect(res[1]?.code).toBe(0);
+  });
 });

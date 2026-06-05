@@ -15,7 +15,12 @@ import {
   type BaseResponse,
   type FetchImpl,
 } from '../transport/http.js';
-import { SendCommandResponseSchema, type SendCommandResponse } from '../transport/schemas.js';
+import { z } from 'zod';
+import {
+  SendCommandResponseSchema,
+  PropertyResultSchema,
+  type SendCommandResponse,
+} from '../transport/schemas.js';
 
 interface SendCommandInput {
   session: DreameSession;
@@ -143,15 +148,27 @@ export async function callAction(
 }
 
 function extractResultArray(res: SendCommandResponse, context: string): PropertyResult[] {
-  if (Array.isArray(res.data?.result)) {
-    return res.data.result as PropertyResult[];
+  const raw = Array.isArray(res.data?.result)
+    ? res.data.result
+    : Array.isArray(res.result)
+      ? res.result
+      : null;
+  if (raw === null) {
+    throw new DreameApiError(
+      `${context}: response did not contain a result array — ${JSON.stringify(res).slice(0, 200)}`,
+      200,
+      res,
+    );
   }
-  if (Array.isArray(res.result)) {
-    return res.result as PropertyResult[];
+  // Validate STRUCTURE leniently (array of objects, known fields optional)
+  // rather than casting unknown[] straight to PropertyResult[].
+  const parsed = z.array(PropertyResultSchema).safeParse(raw);
+  if (!parsed.success) {
+    throw new DreameApiError(
+      `${context}: result array contained a non-object element — ${JSON.stringify(raw).slice(0, 200)}`,
+      200,
+      res,
+    );
   }
-  throw new DreameApiError(
-    `${context}: response did not contain a result array — ${JSON.stringify(res).slice(0, 200)}`,
-    200,
-    res,
-  );
+  return parsed.data;
 }
