@@ -7,4 +7,4 @@ export const LIBRARY_NAME = 'nodedreame';
  * guards drift) — a string constant avoids an ESM JSON-import assertion wrinkle
  * in the published bundle.
  */
-export const LIBRARY_VERSION = '1.7.2';
+export const LIBRARY_VERSION = '1.8.0';

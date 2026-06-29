@@ -76,6 +76,14 @@ export {
 } from './models/vacuum/ai-detection.js';
 export type { DreameAiFeature, AiDetectionRaw } from './models/vacuum/ai-detection.js';
 export {
+  AUTO_SWITCH_JSON_KEY,
+  decodeAutoSwitch,
+  decodeAutoSwitchAll,
+  supportedAutoSwitchKeys,
+  encodeAutoSwitchWrite,
+} from './models/vacuum/auto-switch.js';
+export type { AutoSwitchKey, AutoSwitchRaw } from './models/vacuum/auto-switch.js';
+export {
   VACUUM_CONSUMABLES,
   consumableSpec,
   isDreameConsumableKey,

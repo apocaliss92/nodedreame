@@ -27,6 +27,13 @@ import {
   type DreameAiFeature,
 } from './ai-detection.js';
 import {
+  decodeAutoSwitch,
+  encodeAutoSwitchWrite,
+  supportedAutoSwitchKeys,
+  type AutoSwitchKey,
+  type AutoSwitchRaw,
+} from './auto-switch.js';
+import {
   VACUUM_CONSUMABLES,
   consumableSpec,
   type ConsumableReading,
@@ -329,6 +336,69 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
     this.#requireCap(this.#caps.hasAiObstacleDetection, 'setAiFeature', 'AI obstacle detection');
     const next = encodeAiFeatureWrite(this.aiDetectionRaw, feature, value);
     return this.setProperty({ ...VACUUM_PROP.AI_DETECTION, value: next });
+  }
+
+  // -- auto-switch settings -----------------------------------------------
+  /**
+   * The raw `AUTO_SWITCH_SETTINGS` value (siid 4 piid 50) — a JSON string packing
+   * every secondary toggle/setting — or `null` when not yet observed. Prefer the
+   * decoded {@link autoSwitchProperty} / {@link supportedAutoSwitchKeys} surface.
+   */
+  get autoSwitchRaw(): AutoSwitchRaw {
+    const v = this.getProperty(
+      VACUUM_PROP.AUTO_SWITCH_SETTINGS.siid,
+      VACUUM_PROP.AUTO_SWITCH_SETTINGS.piid,
+    )?.value;
+    return typeof v === 'string' ? v : null;
+  }
+
+  /** Whether this model reports the packed auto-switch bundle at all. */
+  get hasAutoSwitchSettings(): boolean {
+    return this.autoSwitchRaw !== null;
+  }
+
+  /**
+   * The auto-switch settings this model reports, decoded from the packed value.
+   * Presence-driven (a key appears iff the payload carries it) — mirrors
+   * Tasshack `auto_switch_data`.
+   */
+  get supportedAutoSwitchKeys(): readonly AutoSwitchKey[] {
+    return supportedAutoSwitchKeys(this.autoSwitchRaw);
+  }
+
+  /**
+   * Read ONE auto-switch setting's int value, decoded from the packed
+   * `AUTO_SWITCH_SETTINGS` payload. `null` when the value is unobserved or the
+   * key is not present. The value is an opaque int (boolean 0/1, a small enum, or
+   * a `-1`/`-n` "not applicable" sentinel) — the caller interprets it.
+   */
+  autoSwitchProperty(key: AutoSwitchKey): number | null {
+    return decodeAutoSwitch(this.autoSwitchRaw, key);
+  }
+
+  /**
+   * Seed {@link autoSwitchRaw} from the CLOUD SHADOW (the last value the robot
+   * pushed for `AUTO_SWITCH_SETTINGS`, siid 4 piid 50) WITHOUT waking it. Like the
+   * AI bundle these are STATIC settings the robot rarely re-pushes over MQTT, so a
+   * fresh connect to an idle robot has no value cached — call this on activate to
+   * surface the current settings. Returns the resolved raw value (`null` when the
+   * shadow carries none yet).
+   */
+  async refreshAutoSwitch(): Promise<AutoSwitchRaw> {
+    await this.refreshCachedProperties([VACUUM_PROP.AUTO_SWITCH_SETTINGS]);
+    return this.autoSwitchRaw;
+  }
+
+  /**
+   * Set ONE auto-switch setting. Mirrors Tasshack `set_auto_switch_property`: a
+   * single-key `{"k":<key>,"v":<int>}` write the device merges server-side (the
+   * other settings are preserved without a read-modify-write). Rejects when the
+   * model does not report the bundle.
+   */
+  async setAutoSwitchProperty(key: AutoSwitchKey, value: number): Promise<unknown> {
+    this.#requireCap(this.hasAutoSwitchSettings, 'setAutoSwitchProperty', 'auto-switch settings');
+    const next = encodeAutoSwitchWrite(key, value);
+    return this.setProperty({ ...VACUUM_PROP.AUTO_SWITCH_SETTINGS, value: next });
   }
 
   // -- command helpers ----------------------------------------------------

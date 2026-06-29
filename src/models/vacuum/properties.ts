@@ -43,6 +43,12 @@ export const VACUUM_PROP = {
    * via `ai-detection.ts` ({@link decodeAiFeature} / {@link encodeAiFeatureWrite}).
    */
   AI_DETECTION: { siid: 4, piid: 22 } as const,
+  /**
+   * Auto-switch settings bundle (Tasshack types.py — `AUTO_SWITCH_SETTINGS`,
+   * siid 4 piid 50). A JSON string packing every secondary toggle/setting as
+   * `[{"k":<key>,"v":<int>}, …]`. Decode/encode per-setting via `auto-switch.ts`.
+   */
+  AUTO_SWITCH_SETTINGS: { siid: 4, piid: 50 } as const,
   /** VERIFIED r2532a 2026-05-03 — task progress percentage 0..100. */
   TASK_PROGRESS_PCT: { siid: 4, piid: 63 } as const,
   /** VERIFIED r2532a — mop-drying progress (minutes ticking during MopDrying). */
