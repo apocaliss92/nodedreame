@@ -22,3 +22,10 @@ export {
   type DreameAiFeature,
   type AiDetectionRaw,
 } from './ai-detection.js';
+export {
+  VACUUM_CONSUMABLES,
+  consumableSpec,
+  type ConsumableSpec,
+  type ConsumableReading,
+  type DreameConsumableKey,
+} from './consumables.js';

@@ -26,6 +26,12 @@ import {
   type AiDetectionRaw,
   type DreameAiFeature,
 } from './ai-detection.js';
+import {
+  VACUUM_CONSUMABLES,
+  consumableSpec,
+  type ConsumableReading,
+  type DreameConsumableKey,
+} from './consumables.js';
 import { enumLookup } from '../_shared/decode.js';
 import {
   VacuumCapabilityResolver,
@@ -220,6 +226,57 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
   }
   get volume(): number | null {
     return this.#num(SETTINGS_PROP.VOLUME.siid, SETTINGS_PROP.VOLUME.piid);
+  }
+
+  // -- consumables --------------------------------------------------------
+  /**
+   * Remaining-life % (0..100) for one consumable, or `null` when the model does
+   * not report it (presence == support). Call {@link refreshConsumables} first
+   * on a docked robot so the cloud-shadow life values are seeded.
+   */
+  consumableLeftPct(key: DreameConsumableKey): number | null {
+    const spec = consumableSpec(key);
+    if (spec === undefined) return null;
+    return this.#num(spec.life.siid, spec.life.piid);
+  }
+
+  /**
+   * The consumables this model EXPOSES — discovered by presence (a reported
+   * life property), mirroring how the HA integration derives support. Each
+   * reading carries the current remaining-life % and whether a reset action
+   * exists. Empty until the life properties have been observed (push) or seeded
+   * via {@link refreshConsumables}.
+   */
+  get supportedConsumables(): readonly ConsumableReading[] {
+    return VACUUM_CONSUMABLES.flatMap((spec) => {
+      const leftPct = this.#num(spec.life.siid, spec.life.piid);
+      return leftPct === null
+        ? []
+        : [{ key: spec.key, label: spec.label, leftPct, resettable: spec.reset !== null }];
+    });
+  }
+
+  /**
+   * Seed EVERY consumable life property from the cloud shadow (no robot wake) so
+   * {@link supportedConsumables} reflects the full set on a docked robot. The
+   * consumable life values are static settings the robot rarely re-pushes over
+   * MQTT, so a fresh connect surfaces only the actively-changing ones without this.
+   */
+  async refreshConsumables(): Promise<void> {
+    await this.refreshCachedProperties(VACUUM_CONSUMABLES.map((c) => c.life));
+  }
+
+  /**
+   * Reset (mark replaced → life back to 100%) one consumable via its MIoT reset
+   * action. Rejects when the model exposes no reset action for the key (e.g.
+   * `dust-bag`) or the key is unknown.
+   */
+  async resetConsumable(key: DreameConsumableKey): Promise<unknown> {
+    const spec = consumableSpec(key);
+    if (spec === undefined || spec.reset === null) {
+      throw new DreameError(`resetConsumable: no reset action for consumable "${key}"`);
+    }
+    return this.callAction(spec.reset.siid, spec.reset.aiid, []);
   }
 
   // -- AI obstacle-detection ----------------------------------------------

@@ -75,6 +75,15 @@ export {
   encodeAiFeatureWrite,
 } from './models/vacuum/ai-detection.js';
 export type { DreameAiFeature, AiDetectionRaw } from './models/vacuum/ai-detection.js';
+export {
+  VACUUM_CONSUMABLES,
+  consumableSpec,
+} from './models/vacuum/consumables.js';
+export type {
+  ConsumableSpec,
+  ConsumableReading,
+  DreameConsumableKey,
+} from './models/vacuum/consumables.js';
 
 // --- Phase 4: mower model -------------------------------------------------
 // Public mower surface only: the typed MowerDevice handle, its value enums,
