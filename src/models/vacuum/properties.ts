@@ -35,6 +35,14 @@ export const VACUUM_PROP = {
   CLEANING_MODE: { siid: 4, piid: 23 } as const,
   /** VERIFIED r2532a — Child Lock boolean. */
   CHILD_LOCK: { siid: 4, piid: 27 } as const,
+  /**
+   * AI obstacle-detection toggle bundle (Tasshack types.py:1609 — `AI_DETECTION`,
+   * siid 4 piid 22). The value packs ALL AI-obstacle switches into ONE property,
+   * encoded as EITHER an int bitmask (`DreameVacuumAIProperty`) OR a JSON string
+   * (`DreameVacuumStrAIProperty`) depending on firmware. Decode/encode per-feature
+   * via `ai-detection.ts` ({@link decodeAiFeature} / {@link encodeAiFeatureWrite}).
+   */
+  AI_DETECTION: { siid: 4, piid: 22 } as const,
   /** VERIFIED r2532a 2026-05-03 — task progress percentage 0..100. */
   TASK_PROGRESS_PCT: { siid: 4, piid: 63 } as const,
   /** VERIFIED r2532a — mop-drying progress (minutes ticking during MopDrying). */

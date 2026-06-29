@@ -68,6 +68,13 @@ export {
   MODEL_CAPABILITIES as VACUUM_MODEL_CAPABILITIES,
 } from './models/vacuum/capabilities.js';
 export type { VacuumCapabilities } from './models/vacuum/capabilities.js';
+export {
+  AI_FEATURE_BIT,
+  AI_FEATURE_JSON_KEY,
+  decodeAiFeature,
+  encodeAiFeatureWrite,
+} from './models/vacuum/ai-detection.js';
+export type { DreameAiFeature, AiDetectionRaw } from './models/vacuum/ai-detection.js';
 
 // --- Phase 4: mower model -------------------------------------------------
 // Public mower surface only: the typed MowerDevice handle, its value enums,

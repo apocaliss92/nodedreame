@@ -14,3 +14,11 @@ export {
   MODEL_CAPABILITIES,
   type VacuumCapabilities,
 } from './capabilities.js';
+export {
+  AI_FEATURE_BIT,
+  AI_FEATURE_JSON_KEY,
+  decodeAiFeature,
+  encodeAiFeatureWrite,
+  type DreameAiFeature,
+  type AiDetectionRaw,
+} from './ai-detection.js';

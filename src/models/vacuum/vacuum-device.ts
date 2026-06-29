@@ -20,6 +20,12 @@ import {
   WaterVolume,
 } from './enums.js';
 import { asNum, parseFaultList } from './decode.js';
+import {
+  decodeAiFeature,
+  encodeAiFeatureWrite,
+  type AiDetectionRaw,
+  type DreameAiFeature,
+} from './ai-detection.js';
 import { enumLookup } from '../_shared/decode.js';
 import {
   VacuumCapabilityResolver,
@@ -214,6 +220,43 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
   }
   get volume(): number | null {
     return this.#num(SETTINGS_PROP.VOLUME.siid, SETTINGS_PROP.VOLUME.piid);
+  }
+
+  // -- AI obstacle-detection ----------------------------------------------
+  /**
+   * The raw `AI_DETECTION` value (siid 4 piid 22) — an int bitmask or a JSON
+   * string, depending on firmware — or `null` when not yet observed. Prefer the
+   * decoded {@link aiFeature} / {@link supportedAiFeatures} surface.
+   */
+  get aiDetectionRaw(): AiDetectionRaw {
+    const v = this.getProperty(VACUUM_PROP.AI_DETECTION.siid, VACUUM_PROP.AI_DETECTION.piid)?.value;
+    return typeof v === 'number' || typeof v === 'string' ? v : null;
+  }
+
+  /** The AI-obstacle toggles this model exposes (from its capability record). */
+  get supportedAiFeatures(): readonly DreameAiFeature[] {
+    return this.#caps.supportedAiFeatures;
+  }
+
+  /**
+   * Read ONE AI-obstacle toggle's on/off state, decoded from the packed
+   * `AI_DETECTION` value (transparent across the int / JSON encodings). `null`
+   * when the value is unobserved or the feature is not representable.
+   */
+  aiFeature(feature: DreameAiFeature): boolean | null {
+    return decodeAiFeature(this.aiDetectionRaw, feature);
+  }
+
+  /**
+   * Toggle ONE AI-obstacle feature, preserving the others via a read-modify-write
+   * of the packed `AI_DETECTION` property (mirrors Tasshack `set_ai_detection`).
+   * Capability-gated on `hasAiObstacleDetection`; rejects when the current value
+   * is unknown (a blind write would clobber the other toggles).
+   */
+  async setAiFeature(feature: DreameAiFeature, value: boolean): Promise<unknown> {
+    this.#requireCap(this.#caps.hasAiObstacleDetection, 'setAiFeature', 'AI obstacle detection');
+    const next = encodeAiFeatureWrite(this.aiDetectionRaw, feature, value);
+    return this.setProperty({ ...VACUUM_PROP.AI_DETECTION, value: next });
   }
 
   // -- command helpers ----------------------------------------------------
@@ -471,6 +514,7 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
     VACUUM_PROP.WATER_VOLUME,
     VACUUM_PROP.CLEAN_MODE_SETTING,
     VACUUM_PROP.TASK_PROGRESS_PCT,
+    VACUUM_PROP.AI_DETECTION,
     BATTERY_PROP.LEVEL,
     BATTERY_PROP.CHARGING_STATUS,
     CONSUMABLE_PROP.MAIN_BRUSH_LEFT,

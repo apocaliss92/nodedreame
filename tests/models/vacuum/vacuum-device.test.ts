@@ -204,6 +204,67 @@ describe('VacuumDevice state getters', () => {
     expect(v.capabilities.has('mop')).toBe(true); // inherited generic tokens
   });
 
+  it('decodes the packed AI_DETECTION int into per-feature booleans + supportedAiFeatures', async () => {
+    // 271 = furniture(1)+obstacle(2)+obstaclePicture(4)+fluid(8)+fuzzy(256).
+    const v = new VacuumDevice({
+      device: fakeDevice('dreame.vacuum.r2538z'),
+      region: 'eu',
+      sessionRef: fakeSession,
+      deps: depsReturning([{ siid: 4, piid: 22, value: 271, code: 0 }]),
+      fetchInitialValues: false,
+    });
+    await v.start();
+    await v.refreshProperties([{ siid: 4, piid: 22 }]);
+    expect(v.aiFeature('obstacleDetection')).toBe(true);
+    expect(v.aiFeature('fluidDetection')).toBe(true);
+    expect(v.aiFeature('petDetection')).toBe(false);
+    expect(v.aiFeature('obstacleImageUpload')).toBe(false);
+    expect(v.supportedAiFeatures).toContain('obstacleDetection');
+    expect(v.supportedAiFeatures).toContain('petDetection');
+    await v.close();
+  });
+
+  it('setAiFeature read-modify-writes AI_DETECTION (siid 4 piid 22) preserving the other bits', async () => {
+    const writes: PropertyResult[][] = []
+    const deps: BaseDeviceDeps = {
+      createPush: () => fakePush(),
+      getProperties: () => Promise.resolve([{ siid: 4, piid: 22, value: 271, code: 0 }]),
+      getCachedProperties: () => Promise.resolve([{ siid: 4, piid: 22, value: 271, code: 0 }]),
+      setProperties: (_base, w) => {
+        writes.push(w)
+        return Promise.resolve([])
+      },
+      callAction: () => Promise.resolve({}),
+    }
+    const v = new VacuumDevice({
+      device: fakeDevice('dreame.vacuum.r2538z'),
+      region: 'eu',
+      sessionRef: fakeSession,
+      deps,
+      fetchInitialValues: false,
+    })
+    await v.start()
+    await v.refreshProperties([{ siid: 4, piid: 22 }])
+    // turn pet (bit 16) ON -> 271 | 16 = 287, other bits intact
+    await v.setAiFeature('petDetection', true)
+    expect(writes[0]).toEqual([{ siid: 4, piid: 22, value: 287 }])
+    await v.close()
+  })
+
+  it('setAiFeature throws when the model lacks AI obstacle detection', async () => {
+    const v = new VacuumDevice({
+      device: fakeDevice('dreame.vacuum.zzz999'), // fallback: hasAiObstacleDetection=false
+      region: 'eu',
+      sessionRef: fakeSession,
+      deps: depsReturning([{ siid: 4, piid: 22, value: 271, code: 0 }]),
+      fetchInitialValues: false,
+    })
+    await v.start()
+    await v.refreshProperties([{ siid: 4, piid: 22 }])
+    await expect(v.setAiFeature('petDetection', true)).rejects.toThrow(/AI obstacle detection/)
+    await v.close()
+  })
+
   it('exposes the supported suction/water enum sets for r2538z', () => {
     const v = new VacuumDevice({
       device: fakeDevice('dreame.vacuum.r2538z'),

@@ -6,7 +6,23 @@
  * until live-confirmed.
  */
 import { SuctionLevel, WaterVolume } from './enums.js';
+import type { DreameAiFeature } from './ai-detection.js';
 import type { CapabilityResolver, DeviceCapabilities } from '../../device/capability.js';
+
+/**
+ * AI-obstacle features the X50 family exposes (live-verified on `dreame.vacuum.r2538z`
+ * via the Dreamehome/HA superset 2026-06-29). `petPicture`/`petFocusedDetection` read
+ * `unavailable` on this model, so they are intentionally excluded.
+ */
+const X50_AI_FEATURES: readonly DreameAiFeature[] = [
+  'obstacleDetection',
+  'petDetection',
+  'furnitureDetection',
+  'fluidDetection',
+  'obstaclePicture',
+  'obstacleImageUpload',
+  'fuzzyObstacleDetection',
+];
 
 /** Rich vacuum capability record. `canX` = behaviour, `hasX` = hardware. */
 export interface VacuumCapabilities {
@@ -33,6 +49,12 @@ export interface VacuumCapabilities {
   canMap: boolean;
   supportedSuctionLevels: readonly SuctionLevel[];
   supportedWaterVolumes: readonly WaterVolume[];
+  /**
+   * The AI-obstacle toggles this model exposes (subset of {@link DreameAiFeature}),
+   * each surfaced as an independent boolean from the packed `AI_DETECTION` property.
+   * Empty when `hasAiObstacleDetection` is false.
+   */
+  supportedAiFeatures: readonly DreameAiFeature[];
 }
 
 const FALLBACK: Omit<VacuumCapabilities, 'model'> = {
@@ -64,6 +86,8 @@ const FALLBACK: Omit<VacuumCapabilities, 'model'> = {
     SuctionLevel.Max,
   ],
   supportedWaterVolumes: [WaterVolume.Low, WaterVolume.Medium, WaterVolume.High],
+  // An unknown model advertises no AI toggles until its feature set is verified.
+  supportedAiFeatures: [],
 };
 
 /** Full-feature X50-family record body (r2532a verified; r2538z assumed sibling). */
@@ -92,6 +116,7 @@ const X50_FAMILY: Omit<VacuumCapabilities, 'model' | 'verified'> = {
     SuctionLevel.Max,
   ],
   supportedWaterVolumes: [WaterVolume.Low, WaterVolume.Medium, WaterVolume.High],
+  supportedAiFeatures: X50_AI_FEATURES,
 };
 
 function deepFreeze<T>(obj: T): T {
