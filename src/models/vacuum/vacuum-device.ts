@@ -371,6 +371,32 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
   }
 
   /**
+   * The OSS object name of the latest map frame the robot advertised via its
+   * PATH push (siid 6 piid 3), or `null` when none has been observed yet (the
+   * robot has not uploaded a map since connect). This is the `filename` to pass
+   * to {@link getMap} — or just call {@link fetchLatestMap}.
+   */
+  get mapFilename(): string | null {
+    const v = this.getProperty(VACUUM_PROP.MAP_PATH.siid, VACUUM_PROP.MAP_PATH.piid)?.value;
+    return typeof v === 'string' && v.length > 0 ? v : null;
+  }
+
+  /**
+   * Convenience: fetch + decode the LATEST map frame the robot advertised,
+   * reading {@link mapFilename} and delegating to {@link getMap}. Returns `null`
+   * when no map filename has been observed yet (vs throwing) so a consumer can
+   * poll it safely; once a filename is present it behaves exactly like
+   * {@link getMap} (capability-gated on `canMap`, caches {@link lastMap}, emits
+   * `'map'`). The `fetcher`/`key`/`iv`/`host`/`timeoutMs`/`signal` overrides are
+   * forwarded verbatim.
+   */
+  async fetchLatestMap(opts: Omit<VacuumGetMapInput, 'filename'> = {}): Promise<VacuumMap | null> {
+    const filename = this.mapFilename;
+    if (filename === null) return null;
+    return this.getMap({ filename, ...opts });
+  }
+
+  /**
    * The current room/segment id, derived from the most-recently-decoded map's
    * active-segment set (`sa`). `null` when no map has been fetched or no
    * segment is currently active. REPLACES the P3 "intentionally not exposed"

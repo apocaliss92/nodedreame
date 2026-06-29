@@ -39,6 +39,13 @@ export const VACUUM_PROP = {
   TASK_PROGRESS_PCT: { siid: 4, piid: 63 } as const,
   /** VERIFIED r2532a — mop-drying progress (minutes ticking during MopDrying). */
   DRYING_PROGRESS: { siid: 4, piid: 64 } as const,
+  /**
+   * Map "PATH" push — the OSS object name of the latest map frame the robot
+   * uploaded (the value passed to {@link VacuumDevice.getMap}). Arrives via the
+   * MQTT push during/after cleaning; NOT in `DEFAULT_PROPS` because it is not
+   * polled (it is pushed). Read it through {@link VacuumDevice.mapFilename}.
+   */
+  MAP_PATH: { siid: 6, piid: 3 } as const,
 } as const;
 
 /**

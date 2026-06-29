@@ -172,3 +172,65 @@ describe('VacuumCapabilities.canMap', () => {
     expect(v.vacuumCapabilities.canMap).toBe(true);
   });
 });
+
+describe('VacuumDevice.mapFilename', () => {
+  it('returns the seeded MAP_PATH (siid 6 piid 3) OSS object name', async () => {
+    const v = new VacuumDevice({
+      device: fakeDevice(),
+      region: 'eu',
+      sessionRef: fakeSession,
+      deps: depsReturning([{ siid: 6, piid: 3, value: 'ali_dreame/u/d1/9', code: 0 }]),
+      fetchInitialValues: false,
+    });
+    await v.start();
+    expect(v.mapFilename).toBeNull(); // not observed until a refresh/push lands it
+    await v.refreshProperties([{ siid: 6, piid: 3 }]);
+    expect(v.mapFilename).toBe('ali_dreame/u/d1/9');
+    await v.close();
+  });
+
+  it('treats an empty/absent map path as null', async () => {
+    const v = new VacuumDevice({
+      device: fakeDevice(),
+      region: 'eu',
+      sessionRef: fakeSession,
+      deps: depsReturning([{ siid: 6, piid: 3, value: '', code: 0 }]),
+      fetchInitialValues: false,
+    });
+    await v.start();
+    await v.refreshProperties([{ siid: 6, piid: 3 }]);
+    expect(v.mapFilename).toBeNull();
+    await v.close();
+  });
+});
+
+describe('VacuumDevice.fetchLatestMap()', () => {
+  it('reads mapFilename then delegates to getMap (caches lastMap, forwards fetcher)', async () => {
+    const fetcher = new FakeOssFetcher(activeSegmentFrame());
+    const v = new VacuumDevice({
+      device: fakeDevice(),
+      region: 'eu',
+      sessionRef: fakeSession,
+      deps: depsReturning([{ siid: 6, piid: 3, value: 'ali_dreame/u/d1/7', code: 0 }]),
+      fetchInitialValues: false,
+    });
+    await v.start();
+    await v.refreshProperties([{ siid: 6, piid: 3 }]);
+    const map = await v.fetchLatestMap({ fetcher });
+    expect(map).not.toBeNull();
+    expect(v.lastMap).toBe(map);
+    expect(fetcher.calls.length).toBe(1);
+    expect(fetcher.calls[0]?.filename).toBe('ali_dreame/u/d1/7');
+    await v.close();
+  });
+
+  it('returns null (without fetching) when no map filename has been observed', async () => {
+    const fetcher = new FakeOssFetcher(activeSegmentFrame());
+    const v = makeVacuum();
+    await v.start();
+    const map = await v.fetchLatestMap({ fetcher });
+    expect(map).toBeNull();
+    expect(fetcher.calls.length).toBe(0);
+    await v.close();
+  });
+});
