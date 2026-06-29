@@ -28,7 +28,7 @@ import type {
   MapPose,
   MapTail,
 } from './types.js';
-import { ANGLE_ABSENT, HEADER_SIZE, unwrapEnvelope } from './envelope.js';
+import { ANGLE_ABSENT, HEADER_SIZE, looksLikeBase64Zlib, unwrapEnvelope } from './envelope.js';
 import type { MapHeader } from './header.js';
 import { parseFrame } from './tail.js';
 import { collectSegments, decodePixelGridFsm1 } from './pixel-grid.js';
@@ -40,14 +40,27 @@ import { mergePFrame, mergePFrameEnvelope } from './merge.js';
 
 /**
  * Decode a single frame envelope to a `VacuumMap`. Accepts the raw MQTT
- * value (URL-safe base64 string, optionally with `,<aes-key>` suffix)
- * or the inflated bytes directly (`Buffer`). Pure — no IO.
+ * value (URL-safe base64 string, optionally with `,<aes-key>` suffix),
+ * the raw fetched OSS bytes (a `Buffer` that is STILL the base64 envelope —
+ * `OssFetcher.fetchBlob` returns the object bytes verbatim, NOT inflated), or
+ * already-inflated frame bytes (`Buffer`). Pure — no IO.
  */
 export function decodeVacuumMap(
   input: Buffer | string,
   opts: VacuumMapDecodeOptions = {},
 ): VacuumMap {
-  const inflated = typeof input === 'string' ? unwrapEnvelope(input, opts) : input;
+  // A `Buffer` may be either an already-inflated frame (tests / the P-frame merge
+  // primitive) OR the raw fetched OSS bytes, which are STILL the base64+zlib
+  // envelope (the live `getMap` path). Detect the latter — a base64 wrapper around
+  // a zlib stream — and run it through `unwrapEnvelope` (base64 → zlib, peeling any
+  // extra wrap layers); an already-inflated binary frame fails the check and is
+  // used verbatim.
+  const inflated =
+    typeof input === 'string'
+      ? unwrapEnvelope(input, opts)
+      : looksLikeBase64Zlib(input)
+        ? unwrapEnvelope(input.toString('latin1'), opts)
+        : input;
   const { header, tail } = parseFrame(inflated);
 
   const dimensions = mergeDimensions(header, tail);

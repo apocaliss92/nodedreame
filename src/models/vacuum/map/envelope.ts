@@ -67,10 +67,63 @@ export function unwrapEnvelope(value: string, opts: VacuumMapDecodeOptions = {})
     bytes = aesCbcDecrypt(bytes, key, opts.iv);
   }
 
+  let inflated: Buffer;
   try {
-    return zlib.inflateSync(bytes);
+    inflated = zlib.inflateSync(bytes);
   } catch (err) {
     throw new MapDecodeError('envelope: zlib inflate failed', { cause: err });
+  }
+
+  // Some models/firmwares DOUBLE-wrap live-clean frames: the first inflate yields
+  // a URL-safe base64 STRING of ANOTHER zlib stream rather than the binary frame
+  // (verified on dreame.vacuum.r2538z — head decodes to the `78 xx` zlib magic).
+  // Peel extra base64→zlib layers until the payload is binary (bounded, so a
+  // pathological input can't loop). A genuine binary frame is NOT entirely
+  // base64-text (its int16 header fields + 0x00 padding fail the check), so the
+  // single-wrap path is untouched.
+  let guard = 0;
+  while (guard < MAX_EXTRA_WRAP_LAYERS && looksLikeBase64Zlib(inflated)) {
+    const text = inflated.toString('latin1').replace(/-/g, '+').replace(/_/g, '/');
+    try {
+      inflated = zlib.inflateSync(Buffer.from(text, 'base64'));
+    } catch (err) {
+      throw new MapDecodeError('envelope: nested zlib inflate failed', { cause: err });
+    }
+    guard += 1;
+  }
+  return inflated;
+}
+
+/** Upper bound on nested base64+zlib layers peeled by {@link unwrapEnvelope}. */
+const MAX_EXTRA_WRAP_LAYERS = 4;
+
+/**
+ * Heuristic: does this buffer look like a base64-text wrapper around ANOTHER
+ * zlib stream (rather than a binary map frame)? True only when the WHOLE buffer
+ * is URL-safe-base64 characters AND a short prefix decodes to the zlib magic
+ * byte `0x78`. A binary frame contains non-base64 bytes (header int16s / `0x00`
+ * padding), so it never matches.
+ */
+export function looksLikeBase64Zlib(buf: Buffer): boolean {
+  if (buf.length < 8) return false;
+  for (const b of buf) {
+    const isB64 =
+      (b >= 0x41 && b <= 0x5a) || // A-Z
+      (b >= 0x61 && b <= 0x7a) || // a-z
+      (b >= 0x30 && b <= 0x39) || // 0-9
+      b === 0x2b ||
+      b === 0x2f || // + /
+      b === 0x2d ||
+      b === 0x5f || // - _ (url-safe)
+      b === 0x3d; // =
+    if (!isB64) return false;
+  }
+  try {
+    const prefix = buf.subarray(0, 16).toString('latin1').replace(/-/g, '+').replace(/_/g, '/');
+    const decoded = Buffer.from(prefix, 'base64');
+    return decoded.length >= 2 && decoded[0] === 0x78;
+  } catch {
+    return false;
   }
 }
 

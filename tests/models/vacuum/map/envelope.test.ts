@@ -9,7 +9,11 @@ import * as zlib from 'node:zlib';
 // decrypt+inflate round-trips. This proves the cipher setup is internally
 // consistent and catches any port error — beyond the no-AES path and the
 // key-without-IV guard which were already locked here.
-import { unwrapEnvelope, MapDecodeError } from '../../../../src/models/vacuum/map/envelope.js';
+import {
+  unwrapEnvelope,
+  looksLikeBase64Zlib,
+  MapDecodeError,
+} from '../../../../src/models/vacuum/map/envelope.js';
 import { buildSyntheticFrame } from './fixtures/build-frame.js';
 
 /**
@@ -90,5 +94,30 @@ describe('unwrapEnvelope', () => {
     const rawKey = 'k';
     const envelope = buildAesEnvelope(frame.inflated, rawKey, '0123456789abcdef');
     expect(() => unwrapEnvelope(envelope, { key: rawKey, iv: 'short' })).toThrow(/16 ASCII bytes/);
+  });
+
+  // A plain (no-AES) url-safe-base64(zlib(x)) envelope — the single-wrap form.
+  const plainEnvelope = (x: Buffer): string =>
+    zlib.deflateSync(x).toString('base64').replace(/\+/g, '-').replace(/\//g, '_');
+
+  describe('double-wrapped frames (some firmwares wrap live-clean frames twice)', () => {
+    it('peels an extra base64→zlib layer until the binary frame surfaces', () => {
+      const inner = plainEnvelope(frame.inflated); // url-safe-base64 of zlib(frame)
+      const doubleWrapped = plainEnvelope(Buffer.from(inner, 'latin1'));
+      const out = unwrapEnvelope(doubleWrapped);
+      expect(out.equals(frame.inflated)).toBe(true);
+    });
+
+    it('still single-unwraps a normal frame (no false peel of binary)', () => {
+      const out = unwrapEnvelope(plainEnvelope(frame.inflated));
+      expect(out.equals(frame.inflated)).toBe(true);
+    });
+
+    it('looksLikeBase64Zlib: true for a base64-zlib text buffer, false for a binary frame', () => {
+      const textLayer = Buffer.from(plainEnvelope(frame.inflated), 'latin1');
+      expect(looksLikeBase64Zlib(textLayer)).toBe(true);
+      // The inflated binary frame has non-base64 bytes (int16 header / 0x00 pad).
+      expect(looksLikeBase64Zlib(frame.inflated)).toBe(false);
+    });
   });
 });
