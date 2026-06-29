@@ -18,6 +18,9 @@ export type DreameConsumableKey =
   | 'silver-ion'
   | 'detergent'
   | 'squeegee'
+  | 'deodorizer'
+  | 'wheel'
+  | 'scale-inhibitor'
   | 'dust-bag';
 
 /** One consumable's wire coordinates: remaining-life property + optional reset action. */
@@ -45,6 +48,9 @@ export const VACUUM_CONSUMABLES: readonly ConsumableSpec[] = [
   { key: 'silver-ion', label: 'Silver-ion', life: { siid: 19, piid: 2 }, reset: { siid: 19, aiid: 1 } },
   { key: 'detergent', label: 'Detergent', life: { siid: 20, piid: 1 }, reset: { siid: 20, aiid: 1 } },
   { key: 'squeegee', label: 'Squeegee', life: { siid: 24, piid: 1 }, reset: { siid: 24, aiid: 1 } },
+  { key: 'deodorizer', label: 'Deodorizer', life: { siid: 29, piid: 2 }, reset: { siid: 29, aiid: 1 } },
+  { key: 'wheel', label: 'Wheel', life: { siid: 30, piid: 2 }, reset: { siid: 30, aiid: 1 } },
+  { key: 'scale-inhibitor', label: 'Scale Inhibitor', life: { siid: 31, piid: 2 }, reset: { siid: 31, aiid: 1 } },
   { key: 'dust-bag', label: 'Dust Bag', life: { siid: 27, piid: 17 }, reset: null },
 ] as const;
 
