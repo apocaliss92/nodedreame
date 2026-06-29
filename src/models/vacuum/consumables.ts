@@ -53,6 +53,13 @@ export function consumableSpec(key: DreameConsumableKey): ConsumableSpec | undef
   return VACUUM_CONSUMABLES.find((c) => c.key === key);
 }
 
+/** Narrow an arbitrary string to a known {@link DreameConsumableKey} — lets a
+ *  string-keyed consumer (e.g. a generic consumables cap) validate before
+ *  calling the typed reset path with no cast. */
+export function isDreameConsumableKey(key: string): key is DreameConsumableKey {
+  return VACUUM_CONSUMABLES.some((c) => c.key === key);
+}
+
 /** A resolved consumable reading: which consumable, its remaining life %, and
  *  whether a reset action exists. Only the consumables the model REPORTS appear. */
 export interface ConsumableReading {

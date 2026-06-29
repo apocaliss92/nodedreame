@@ -25,6 +25,7 @@ export {
 export {
   VACUUM_CONSUMABLES,
   consumableSpec,
+  isDreameConsumableKey,
   type ConsumableSpec,
   type ConsumableReading,
   type DreameConsumableKey,

@@ -78,6 +78,7 @@ export type { DreameAiFeature, AiDetectionRaw } from './models/vacuum/ai-detecti
 export {
   VACUUM_CONSUMABLES,
   consumableSpec,
+  isDreameConsumableKey,
 } from './models/vacuum/consumables.js';
 export type {
   ConsumableSpec,
