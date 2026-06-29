@@ -251,6 +251,49 @@ describe('VacuumDevice state getters', () => {
     await v.close()
   })
 
+  it('refreshAiDetection seeds AI_DETECTION from the cloud shadow (no robot wake)', async () => {
+    const calls: ('live' | 'cache')[] = []
+    const deps: BaseDeviceDeps = {
+      createPush: () => fakePush(),
+      getProperties: () => {
+        calls.push('live')
+        return Promise.resolve([] as PropertyResult[])
+      },
+      getCachedProperties: () => {
+        calls.push('cache')
+        return Promise.resolve([{ siid: 4, piid: 22, value: 271, code: 0 }])
+      },
+      setProperties: () => Promise.resolve([]),
+      callAction: () => Promise.resolve({}),
+    }
+    const v = new VacuumDevice({
+      device: fakeDevice('dreame.vacuum.r2538z'),
+      region: 'eu',
+      sessionRef: fakeSession,
+      deps,
+      fetchInitialValues: false,
+    })
+    await v.start()
+    const raw = await v.refreshAiDetection()
+    expect(calls).toEqual(['cache']) // shadow read only, never the waking path
+    expect(raw).toBe(271)
+    expect(v.aiFeature('obstacleDetection')).toBe(true)
+    await v.close()
+  })
+
+  it('refreshAiDetection returns null when the model lacks AI obstacle detection', async () => {
+    const v = new VacuumDevice({
+      device: fakeDevice('dreame.vacuum.zzz999'),
+      region: 'eu',
+      sessionRef: fakeSession,
+      deps: depsReturning([]),
+      fetchInitialValues: false,
+    })
+    await v.start()
+    expect(await v.refreshAiDetection()).toBeNull()
+    await v.close()
+  })
+
   it('setAiFeature throws when the model lacks AI obstacle detection', async () => {
     const v = new VacuumDevice({
       device: fakeDevice('dreame.vacuum.zzz999'), // fallback: hasAiObstacleDetection=false

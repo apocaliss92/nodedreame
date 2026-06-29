@@ -248,6 +248,21 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
   }
 
   /**
+   * Seed {@link aiDetectionRaw} from the CLOUD SHADOW (the last value the robot
+   * pushed for `AI_DETECTION`, siid 4 piid 22) WITHOUT waking it. The AI-obstacle
+   * toggles are STATIC settings the robot rarely re-pushes over MQTT, so a fresh
+   * connect to an idle robot has no value cached — call this on activate to
+   * surface the current toggles. Emits the usual `propertyChanged`/`stateChanged`
+   * (so a watching consumer re-decodes) and returns the resolved raw value
+   * (`null` when the model has no AI detection or the shadow carries none yet).
+   */
+  async refreshAiDetection(): Promise<AiDetectionRaw> {
+    if (!this.#caps.hasAiObstacleDetection) return null;
+    await this.refreshCachedProperties([VACUUM_PROP.AI_DETECTION]);
+    return this.aiDetectionRaw;
+  }
+
+  /**
    * Toggle ONE AI-obstacle feature, preserving the others via a read-modify-write
    * of the packed `AI_DETECTION` property (mirrors Tasshack `set_ai_detection`).
    * Capability-gated on `hasAiObstacleDetection`; rejects when the current value
