@@ -234,3 +234,21 @@ describe('VacuumDevice.fetchLatestMap()', () => {
     await v.close();
   });
 });
+
+describe('VacuumDevice.refreshSavedMapFilename()', () => {
+  it('seeds mapFilename from the cloud shadow and returns it', async () => {
+    const v = new VacuumDevice({
+      device: fakeDevice(),
+      region: 'eu',
+      sessionRef: fakeSession,
+      deps: depsReturning([{ siid: 6, piid: 3, value: 'ali_dreame/u/d1/saved', code: 0 }]),
+      fetchInitialValues: false,
+    });
+    await v.start();
+    expect(v.mapFilename).toBeNull(); // shadow not read yet
+    const fn = await v.refreshSavedMapFilename();
+    expect(fn).toBe('ali_dreame/u/d1/saved');
+    expect(v.mapFilename).toBe('ali_dreame/u/d1/saved');
+    await v.close();
+  });
+});

@@ -397,6 +397,24 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
   }
 
   /**
+   * Seed {@link mapFilename} from the CLOUD SHADOW (the last value the robot
+   * pushed for siid 6 piid 3) WITHOUT waking it — so a docked/idle robot can
+   * surface its LAST cleaning map without a fresh clean. Emits the usual
+   * `propertyChanged`/`stateChanged` (so a map-watching consumer re-renders) and
+   * returns the resolved {@link mapFilename} (null when the model has no map or
+   * the shadow carries no map path yet).
+   *
+   * NOTE: the shadow holds the last LIVE-PATH filename; its OSS blob may have
+   * expired, in which case a follow-up {@link fetchLatestMap} rejects — treat
+   * that as "no saved map available".
+   */
+  async refreshSavedMapFilename(): Promise<string | null> {
+    if (!this.#caps.canMap) return null;
+    await this.refreshCachedProperties([VACUUM_PROP.MAP_PATH]);
+    return this.mapFilename;
+  }
+
+  /**
    * The current room/segment id, derived from the most-recently-decoded map's
    * active-segment set (`sa`). `null` when no map has been fetched or no
    * segment is currently active. REPLACES the P3 "intentionally not exposed"
