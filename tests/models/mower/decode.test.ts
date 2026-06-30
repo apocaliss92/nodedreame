@@ -4,6 +4,9 @@ import {
   parseTaskDescriptor,
   parseControlStatus,
   controlActionFor,
+  extractMowerConsumableValues,
+  parseMowerConsumables,
+  mowerConsumableIndex,
 } from '../../../src/models/mower/decode.js';
 import { MowerControlAction } from '../../../src/models/mower/enums.js';
 
@@ -149,5 +152,73 @@ describe('mower control status (2:56)', () => {
     expect(controlActionFor(0)).toBe(MowerControlAction.Continue);
     expect(controlActionFor(4)).toBe(MowerControlAction.Pause);
     expect(controlActionFor(99)).toBeNull();
+  });
+});
+
+describe('CMS consumables', () => {
+  it('maps consumable aliases to their counter index', () => {
+    expect(mowerConsumableIndex('blade')).toBe(0);
+    expect(mowerConsumableIndex('blades')).toBe(0);
+    expect(mowerConsumableIndex('brush')).toBe(1);
+    expect(mowerConsumableIndex('cleaning_brush')).toBe(1);
+    expect(mowerConsumableIndex('robot')).toBe(2);
+    expect(mowerConsumableIndex('maintenance')).toBe(2);
+    expect(mowerConsumableIndex(' BRUSH ')).toBe(1); // trim + lowercase
+    expect(mowerConsumableIndex('unknown')).toBeNull();
+  });
+
+  it('extracts counter values when the result itself carries a value list', () => {
+    expect(extractMowerConsumableValues({ value: [100, 200, 300] })).toEqual([100, 200, 300]);
+  });
+
+  it('extracts counter values from a nested d.value payload', () => {
+    expect(extractMowerConsumableValues({ d: { value: [1, 2, 3, 4] } })).toEqual([1, 2, 3]);
+  });
+
+  it('extracts counter values from the first non-error out[].d entry', () => {
+    const result = {
+      out: [
+        { r: 1, code: 1, d: { value: [9, 9, 9] } }, // error entry — skipped
+        { code: 0, d: { value: [10, 20, 30] } }, // ok entry — used
+      ],
+    };
+    expect(extractMowerConsumableValues(result)).toEqual([10, 20, 30]);
+  });
+
+  it('coerces numeric strings and truncates floats', () => {
+    expect(extractMowerConsumableValues({ value: ['100', 200.9, 300] })).toEqual([100, 200, 300]);
+  });
+
+  it('returns null on a malformed or too-short response', () => {
+    expect(extractMowerConsumableValues(null)).toBeNull();
+    expect(extractMowerConsumableValues({})).toBeNull();
+    expect(extractMowerConsumableValues({ value: [1, 2] })).toBeNull();
+    expect(extractMowerConsumableValues({ value: [1, 'x', 3] })).toBeNull();
+  });
+
+  it('parses readings with correct totals and remaining %', () => {
+    // blade total 6000, brush 30000, maintenance 3600.
+    const readings = parseMowerConsumables({ value: [1842, 10950, 1840] });
+    expect(readings).not.toBeNull();
+    if (readings === null) return;
+    expect(readings.map((r) => r.key)).toEqual(['blade', 'brush', 'maintenance']);
+    expect(readings[0]).toEqual({
+      key: 'blade',
+      usedMinutes: 1842,
+      totalMinutes: 6000,
+      remainingPercent: 69.3,
+    });
+    expect(readings[1].remainingPercent).toBe(63.5);
+    expect(readings[2].remainingPercent).toBe(48.9);
+  });
+
+  it('clamps remaining % to 0 when a counter exceeds its total', () => {
+    const readings = parseMowerConsumables({ value: [7000, 0, 0] });
+    expect(readings?.[0].remainingPercent).toBe(0);
+    expect(readings?.[1].remainingPercent).toBe(100);
+  });
+
+  it('returns null readings on a malformed response', () => {
+    expect(parseMowerConsumables({ foo: 'bar' })).toBeNull();
   });
 });

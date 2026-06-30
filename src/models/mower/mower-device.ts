@@ -4,7 +4,9 @@ import {
   MOWER_PROP,
   buildAllAreaPayload,
   buildEdgePayload,
+  buildGetConsumablePayload,
   buildResumePayload,
+  buildSetConsumablePayload,
   buildSpotPayload,
   buildZonePayload,
 } from './properties.js';
@@ -18,8 +20,13 @@ import {
 import {
   asNum,
   enumLookup,
+  extractMowerConsumableValues,
+  mowerConsumableIndex,
   parseControlStatus,
+  parseMowerConsumables,
   parseTaskDescriptor,
+  type MowerConsumableKey,
+  type MowerConsumableReading,
   type MowerControlState,
   type MowerTaskDescriptor,
 } from './decode.js';
@@ -239,6 +246,59 @@ export class MowerDevice extends BaseDevice {
       throw new RangeError('startMowingSpots: spotAreaIds must not be empty');
     }
     return this.#sendTask(buildSpotPayload(spotAreaIds.map((s) => Math.trunc(s))));
+  }
+
+  // -- CMS consumables ----------------------------------------------------
+  /**
+   * Read the raw CMS consumable counters `[blade, brush, robot]` (minutes used),
+   * via the SCHEDULING_TASK (2:50) custom-action getter `{m:'g',t:'CMS'}`. This
+   * is a LIVE device action (it wakes the mower); rejects with
+   * {@link DreameDeviceOfflineError} when the mower is unreachable. Returns null
+   * if the response is malformed.
+   */
+  async getConsumableValues(): Promise<readonly number[] | null> {
+    const result = await this.callAction(
+      MOWER_PROP.SCHEDULING_TASK.siid,
+      MOWER_PROP.SCHEDULING_TASK.piid,
+      [buildGetConsumablePayload()],
+    );
+    return extractMowerConsumableValues(result);
+  }
+
+  /**
+   * Read the CMS consumables as typed readings (blade/brush/maintenance) with
+   * remaining %. LIVE action — see {@link getConsumableValues}. Returns null on
+   * a malformed response.
+   */
+  async getConsumables(): Promise<readonly MowerConsumableReading[] | null> {
+    const result = await this.callAction(
+      MOWER_PROP.SCHEDULING_TASK.siid,
+      MOWER_PROP.SCHEDULING_TASK.piid,
+      [buildGetConsumablePayload()],
+    );
+    return parseMowerConsumables(result);
+  }
+
+  /**
+   * Reset one CMS consumable counter to zero. Reads the current counters, zeroes
+   * the selected one (leaving the others), and writes them back via the
+   * `{m:'s',t:'CMS',d:{value:[…]}}` setter. LIVE action. Throws on an unknown
+   * item or when the current counters cannot be read.
+   */
+  async resetConsumable(item: MowerConsumableKey): Promise<void> {
+    const index = mowerConsumableIndex(item);
+    if (index === null) {
+      throw new DreameError(`resetConsumable: unknown consumable item "${item}"`);
+    }
+    const current = await this.getConsumableValues();
+    if (current === null) {
+      throw new DreameError('resetConsumable: failed to read current CMS counters');
+    }
+    const next = [...current];
+    next[index] = 0;
+    await this.callAction(MOWER_PROP.SCHEDULING_TASK.siid, MOWER_PROP.SCHEDULING_TASK.piid, [
+      buildSetConsumablePayload(next),
+    ]);
   }
 
   /**

@@ -131,3 +131,146 @@ export function parseControlStatus(value: unknown): MowerControlState | null {
     zones,
   };
 }
+
+// -- CMS consumables (custom action on SCHEDULING_TASK 2:50) -----------------
+
+/** Canonical CMS consumable counter keys (blade, brush, robot maintenance). */
+export type MowerConsumableKey = 'blade' | 'brush' | 'maintenance';
+
+/** One CMS consumable counter: minutes used + total + remaining %. */
+export interface MowerConsumableReading {
+  readonly key: MowerConsumableKey;
+  /** Minutes of run-time accrued on this counter (counts UP). */
+  readonly usedMinutes: number;
+  /** Counter's full-life duration in minutes. */
+  readonly totalMinutes: number;
+  /** Remaining life percentage (0..100, one decimal). */
+  readonly remainingPercent: number;
+}
+
+/**
+ * CMS counter layout, ported from antondaubert/dreame-mower `device.py`
+ * (CONSUMABLE_COUNTER_TOTAL_MINUTES + CONSUMABLE_COUNTER_INDEX). The getter
+ * returns `[blade_min, brush_min, robot_min]`; index/total are fixed per model.
+ */
+const MOWER_CONSUMABLES: ReadonlyArray<{
+  readonly key: MowerConsumableKey;
+  readonly index: number;
+  readonly totalMinutes: number;
+}> = [
+  { key: 'blade', index: 0, totalMinutes: 6000 },
+  { key: 'brush', index: 1, totalMinutes: 30000 },
+  { key: 'maintenance', index: 2, totalMinutes: 3600 },
+];
+
+/** Map a consumable key (incl. aliases) to its CMS counter index. */
+export function mowerConsumableIndex(item: string): number | null {
+  switch (item.trim().toLowerCase()) {
+    case 'blade':
+    case 'blades':
+      return 0;
+    case 'brush':
+    case 'cleaning_brush':
+      return 1;
+    case 'robot':
+    case 'maintenance':
+    case 'robot_maintenance':
+      return 2;
+    default:
+      return null;
+  }
+}
+
+function toInt(v: unknown): number | null {
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    return Math.trunc(v);
+  }
+  if (typeof v === 'string') {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.trunc(n) : null;
+  }
+  return null;
+}
+
+/**
+ * Pull the first successful data payload out of a custom-action result. Mirrors
+ * the donor `_extract_custom_action_data`: the result itself when it carries a
+ * `value` list, else its `d` object, else the first non-error `out[].d`.
+ */
+function extractCustomActionData(result: unknown): Record<string, unknown> | null {
+  if (!isRecord(result)) {
+    return null;
+  }
+  if (Array.isArray(result['value'])) {
+    return result;
+  }
+  if (isRecord(result['d'])) {
+    return result['d'];
+  }
+  const out = result['out'];
+  if (!Array.isArray(out)) {
+    return null;
+  }
+  for (const entry of out) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+    const r = entry['r'];
+    const code = entry['code'];
+    const rError = r !== undefined && r !== null && r !== 0;
+    const codeError = code !== undefined && code !== null && code !== 0;
+    if (rError && codeError) {
+      continue;
+    }
+    if (isRecord(entry['d'])) {
+      return entry['d'];
+    }
+  }
+  return null;
+}
+
+/**
+ * Extract the raw `[blade, brush, robot]` minute counters from a CMS getter
+ * result, or null if the response is malformed. Cast-free, no throw.
+ */
+export function extractMowerConsumableValues(result: unknown): number[] | null {
+  const data = extractCustomActionData(result);
+  if (data === null) {
+    return null;
+  }
+  const values = data['value'];
+  if (!Array.isArray(values) || values.length < 3) {
+    return null;
+  }
+  const out: number[] = [];
+  for (const v of values.slice(0, 3)) {
+    const n = toInt(v);
+    if (n === null) {
+      return null;
+    }
+    out.push(n);
+  }
+  return out;
+}
+
+/**
+ * Parse a CMS getter result into typed consumable readings (blade/brush/
+ * maintenance) with remaining %. Returns null on a malformed response.
+ */
+export function parseMowerConsumables(result: unknown): readonly MowerConsumableReading[] | null {
+  const values = extractMowerConsumableValues(result);
+  if (values === null) {
+    return null;
+  }
+  return MOWER_CONSUMABLES.map((c) => {
+    const used = values[c.index] ?? 0;
+    const remaining = c.totalMinutes - used;
+    const pct = Math.max(0, Math.min(100, Math.round((remaining / c.totalMinutes) * 1000) / 10));
+    return {
+      key: c.key,
+      usedMinutes: used,
+      totalMinutes: c.totalMinutes,
+      remainingPercent: pct,
+    };
+  });
+}

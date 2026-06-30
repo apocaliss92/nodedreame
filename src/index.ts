@@ -118,6 +118,14 @@ export {
 } from './models/mower/capabilities.js';
 export type { MowerCapabilities } from './models/mower/capabilities.js';
 export type { MowerTaskDescriptor, MowerControlState } from './models/mower/decode.js';
+// CMS consumables (blade/brush/maintenance) — typed readings + the parser, so
+// camstack can surface them on the `consumables` cap.
+export {
+  parseMowerConsumables,
+  extractMowerConsumableValues,
+  mowerConsumableIndex,
+} from './models/mower/decode.js';
+export type { MowerConsumableKey, MowerConsumableReading } from './models/mower/decode.js';
 
 // --- Phase 5: maps --------------------------------------------------------
 // Public map surface: the structured model types + the two renderers. The

@@ -104,3 +104,32 @@ export function buildSpotPayload(spotAreaIds: number[]): {
 } {
   return { m: 'a', p: 0, o: TASK_OPCODE.SPOT, d: { area: [...spotAreaIds] } };
 }
+
+/**
+ * CMS consumable getter payload `{m:'g', t:'CMS'}` — read the blade/brush/robot
+ * minute counters. Sent as the single in-param of the SCHEDULING_TASK (2:50)
+ * action. device.py `_build_get_consumable_payload`.
+ */
+export function buildGetConsumablePayload(): { m: string; t: string } {
+  return { m: 'g', t: 'CMS' };
+}
+
+/**
+ * CMS consumable setter payload `{m:'s', t:'CMS', d:{value:[...]}}` — write the
+ * three counters (used to reset one to 0). device.py
+ * `_build_set_consumable_payload`. Throws on a non-3 / negative counter list.
+ */
+export function buildSetConsumablePayload(values: number[]): {
+  m: string;
+  t: string;
+  d: { value: number[] };
+} {
+  const normalized = values.map((v) => Math.trunc(v));
+  if (normalized.length !== 3) {
+    throw new RangeError(`CMS values must contain exactly 3 counters; got ${normalized.length}`);
+  }
+  if (normalized.some((v) => v < 0)) {
+    throw new RangeError(`CMS values cannot be negative; got ${JSON.stringify(normalized)}`);
+  }
+  return { m: 's', t: 'CMS', d: { value: normalized } };
+}

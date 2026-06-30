@@ -9,6 +9,8 @@ import {
   buildZonePayload,
   buildEdgePayload,
   buildSpotPayload,
+  buildGetConsumablePayload,
+  buildSetConsumablePayload,
 } from '../../../src/models/mower/properties.js';
 
 describe('mower property/action/event maps', () => {
@@ -50,5 +52,22 @@ describe('mower property/action/event maps', () => {
     expect(buildZonePayload([1, 3])).toEqual({ m: 'a', p: 0, o: 102, d: { region: [1, 3] } });
     expect(buildEdgePayload([[1, 0]])).toEqual({ m: 'a', p: 0, o: 101, d: { edge: [[1, 0]] } });
     expect(buildSpotPayload([5])).toEqual({ m: 'a', p: 0, o: 103, d: { area: [5] } });
+  });
+
+  it('CMS consumable payloads match device.py _build_*_consumable_payload', () => {
+    expect(buildGetConsumablePayload()).toEqual({ m: 'g', t: 'CMS' });
+    expect(buildSetConsumablePayload([0, 10950, 1840])).toEqual({
+      m: 's',
+      t: 'CMS',
+      d: { value: [0, 10950, 1840] },
+    });
+    // floats are truncated to ints
+    expect(buildSetConsumablePayload([1.9, 2.1, 3.5]).d.value).toEqual([1, 2, 3]);
+  });
+
+  it('CMS setter rejects non-3 / negative counter lists', () => {
+    expect(() => buildSetConsumablePayload([1, 2])).toThrow(RangeError);
+    expect(() => buildSetConsumablePayload([1, 2, 3, 4])).toThrow(RangeError);
+    expect(() => buildSetConsumablePayload([-1, 2, 3])).toThrow(RangeError);
   });
 });
