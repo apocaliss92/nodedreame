@@ -49,12 +49,14 @@ describe('renderVacuumPng', () => {
     // Isolate layer painting — the fixture parks robot+charger at world (0,0),
     // which the renderer now draws on top; disable the markers for this check.
     const decoded = PNG.sync.read(renderVacuumPng(map, { showRobot: false, showCharger: false }));
-    // Top-left pixel (0,0) is a wall → opaque (alpha 255).
-    const tl = (0 * decoded.width + 0) * 4;
-    expect(decoded.data[tl + 3]).toBe(255);
-    // Bottom-left pixel (0,1) is `outside`/0 → never painted → transparent.
-    const bl = (1 * decoded.width + 0) * 4;
-    expect(decoded.data[bl + 3]).toBe(0);
+    // Y is flipped (see render.ts header): grid row 0 (wall at col 0) renders to
+    // the BOTTOM pixel row, grid row 1 (`outside`/0) to the TOP.
+    // Bottom-left pixel (0,1) is the wall → opaque (alpha 255).
+    const wall = (1 * decoded.width + 0) * 4;
+    expect(decoded.data[wall + 3]).toBe(255);
+    // Top-left pixel (0,0) is `outside`/0 → never painted → transparent.
+    const empty = (0 * decoded.width + 0) * 4;
+    expect(decoded.data[empty + 3]).toBe(0);
   });
 
   it('respects an optional integer scale factor (nearest-neighbour)', () => {
@@ -138,9 +140,10 @@ function rgbAt(png: Buffer, x: number, y: number): [number, number, number, numb
 
 describe('renderVacuumPng overlays', () => {
   it('honours the colorScheme palette for floor fills', () => {
+    // Floor run at grid row 5 → pixel row (height-1-5)=14 after the Y flip.
     const map = baseMap({ layers: [{ type: 'floor', runs: [[5, 5, 1]] }] });
-    const light = rgbAt(renderVacuumPng(map, { colorScheme: 'dreame-light' }), 5, 5);
-    const dark = rgbAt(renderVacuumPng(map, { colorScheme: 'dreame-dark' }), 5, 5);
+    const light = rgbAt(renderVacuumPng(map, { colorScheme: 'dreame-light' }), 5, 14);
+    const dark = rgbAt(renderVacuumPng(map, { colorScheme: 'dreame-dark' }), 5, 14);
     expect(light).not.toEqual(dark);
     expect(light.slice(0, 3)).toEqual([210, 222, 235]);
     expect(dark.slice(0, 3)).toEqual([40, 46, 56]);
@@ -153,9 +156,10 @@ describe('renderVacuumPng overlays', () => {
   });
 
   it('draws the charger marker, gated on showCharger', () => {
+    // dock world y=3 → pixel row (height-1-3)=16 after the Y flip.
     const map = baseMap({ dock: { x: 3, y: 3, angle: 0 } });
-    expect(rgbAt(renderVacuumPng(map), 3, 3)[3]).toBe(255);
-    expect(rgbAt(renderVacuumPng(map, { showCharger: false }), 3, 3)[3]).toBe(0);
+    expect(rgbAt(renderVacuumPng(map), 3, 16)[3]).toBe(255);
+    expect(rgbAt(renderVacuumPng(map, { showCharger: false }), 3, 16)[3]).toBe(0);
   });
 
   it('draws the cleaning path polyline, gated on showPath', () => {
@@ -170,17 +174,27 @@ describe('renderVacuumPng overlays', () => {
         },
       ],
     });
-    // A midpoint of the horizontal path is painted.
-    expect(rgbAt(renderVacuumPng(map), 9, 10)[3]).toBeGreaterThan(0);
-    expect(rgbAt(renderVacuumPng(map, { showPath: false }), 9, 10)[3]).toBe(0);
+    // Horizontal path at world y=10 → pixel row (height-1-10)=9 after the Y flip.
+    expect(rgbAt(renderVacuumPng(map), 9, 9)[3]).toBeGreaterThan(0);
+    expect(rgbAt(renderVacuumPng(map, { showPath: false }), 9, 9)[3]).toBe(0);
   });
 
   it('fills a no-go restricted area, gated on showNoGo', () => {
     const map = baseMap({
       restrictedAreas: [{ kind: 'noGo', bbox: { xMin: 4, yMin: 4, xMax: 9, yMax: 9 } }],
     });
-    expect(rgbAt(renderVacuumPng(map), 6, 6)[3]).toBeGreaterThan(0);
-    expect(rgbAt(renderVacuumPng(map, { showNoGo: false }), 6, 6)[3]).toBe(0);
+    // y 4..9 → pixel rows 10..15 after the Y flip; (6,12) is inside the rect.
+    expect(rgbAt(renderVacuumPng(map), 6, 12)[3]).toBeGreaterThan(0);
+    expect(rgbAt(renderVacuumPng(map, { showNoGo: false }), 6, 12)[3]).toBe(0);
+  });
+
+  it('flips Y: a feature near world-top renders near the image BOTTOM', () => {
+    // A floor cell at grid row 1 (near the top of a 20-tall map) must land near
+    // the BOTTOM of the image (row 18), and NOT at the top (row 1) — the mirror
+    // fix that aligns camstack with the Dreamehome app / HA.
+    const map = baseMap({ layers: [{ type: 'floor', runs: [[10, 1, 1]] }] });
+    expect(rgbAt(renderVacuumPng(map), 10, 18)[3]).toBe(255); // (height-1)-1 = 18
+    expect(rgbAt(renderVacuumPng(map), 10, 1)[3]).toBe(0);
   });
 
   it('draws a virtual wall line, gated on showVirtualWalls', () => {
@@ -221,5 +235,92 @@ describe('renderVacuumPng overlays', () => {
       if ((withoutLabel.data[i] ?? 0) > 0) paintedOff += 1;
     }
     expect(paintedOff).toBe(0);
+  });
+});
+
+describe('renderVacuumPng enrichment', () => {
+  function countPainted(png: Buffer): number {
+    const d = PNG.sync.read(png);
+    let n = 0;
+    for (let i = 3; i < d.data.length; i += 4) if ((d.data[i] ?? 0) > 0) n += 1;
+    return n;
+  }
+
+  it('exposes the new color schemes with distinct floor colours', () => {
+    const map = baseMap({ layers: [{ type: 'floor', runs: [[5, 5, 1]] }] });
+    const flat = rgbAt(renderVacuumPng(map, { colorScheme: 'flat' }), 5, 14).slice(0, 3);
+    const neon = rgbAt(renderVacuumPng(map, { colorScheme: 'dark-neon' }), 5, 14).slice(0, 3);
+    const mat = rgbAt(renderVacuumPng(map, { colorScheme: 'materico' }), 5, 14).slice(0, 3);
+    expect(flat).toEqual([236, 239, 241]);
+    expect(neon).toEqual([16, 18, 27]);
+    expect(mat).toEqual([245, 245, 245]);
+  });
+
+  it('draws room NAMES when showSegmentNames is set', () => {
+    const named = baseMap({
+      segments: [
+        {
+          id: 4,
+          name: 'CUCINA',
+          bbox: { xMin: 0, yMin: 0, xMax: 20, yMax: 20 },
+          centroid: { x: 10, y: 10 },
+          neighbours: [],
+          floorMaterial: null,
+          floorDirection: null,
+          active: true,
+        },
+      ],
+    });
+    const withNames = countPainted(renderVacuumPng(named, { showSegmentNames: true, scale: 2 }));
+    const plain = countPainted(renderVacuumPng(named, { scale: 2 }));
+    // The 6-letter name paints far more than the 1-digit id would.
+    expect(withNames).toBeGreaterThan(plain + 20);
+  });
+
+  it('colours obstacles by type (distinct types → distinct colours)', () => {
+    const map = baseMap({
+      obstacles: [
+        { id: 1, x: 5, y: 5, type: 1, confidence: 90, photoFileName: null, photoKey: null },
+        { id: 2, x: 12, y: 12, type: 40, confidence: 90, photoFileName: null, photoKey: null },
+      ],
+    });
+    const png = renderVacuumPng(map, { colorObstaclesByType: true });
+    const a = rgbAt(png, 5, 14); // (5,5) -> row 14
+    const b = rgbAt(png, 12, 7); // (12,12) -> row 7
+    expect(a[3]).toBe(255); // obstacle marker painted
+    expect(b[3]).toBe(255);
+    expect(a.slice(0, 3)).not.toEqual(b.slice(0, 3));
+  });
+
+  it('outlines furniture (low-lying) zones, gated on showFurniture', () => {
+    const map = baseMap({
+      lowLyingAreas: [
+        {
+          id: 1,
+          points: [
+            { x: 3, y: 3 },
+            { x: 8, y: 3 },
+            { x: 8, y: 8 },
+            { x: 3, y: 8 },
+          ],
+        },
+      ],
+    });
+    // Top edge y=3 -> pixel row 16; (5,16) sits on the outline.
+    expect(rgbAt(renderVacuumPng(map), 5, 16)[3]).toBeGreaterThan(0);
+    expect(rgbAt(renderVacuumPng(map, { showFurniture: false }), 5, 16)[3]).toBe(0);
+  });
+
+  it('tints the cleaned-area overlay, gated on showCleanedArea', () => {
+    const map = baseMap({
+      cleanedArea: {
+        dimensions: { left: 0, top: 0, width: 20, height: 20, gridSize: 1 },
+        cleaned: [[5, 5, 1]],
+        dirty: [],
+      },
+    });
+    // cleaned cell world (5,5) -> pixel row 14, translucent tint.
+    expect(rgbAt(renderVacuumPng(map, { showCleanedArea: true }), 5, 14)[3]).toBeGreaterThan(0);
+    expect(rgbAt(renderVacuumPng(map), 5, 14)[3]).toBe(0); // default off
   });
 });
