@@ -208,14 +208,14 @@ describe('CMS consumables', () => {
       totalMinutes: 6000,
       remainingPercent: 69.3,
     });
-    expect(readings[1].remainingPercent).toBe(63.5);
-    expect(readings[2].remainingPercent).toBe(48.9);
+    expect(readings[1]?.remainingPercent).toBe(63.5);
+    expect(readings[2]?.remainingPercent).toBe(48.9);
   });
 
   it('clamps remaining % to 0 when a counter exceeds its total', () => {
     const readings = parseMowerConsumables({ value: [7000, 0, 0] });
-    expect(readings?.[0].remainingPercent).toBe(0);
-    expect(readings?.[1].remainingPercent).toBe(100);
+    expect(readings?.[0]?.remainingPercent).toBe(0);
+    expect(readings?.[1]?.remainingPercent).toBe(100);
   });
 
   it('returns null readings on a malformed response', () => {

@@ -133,7 +133,7 @@ function baseMap(over: Partial<VacuumMap> = {}): VacuumMap {
 function rgbAt(png: Buffer, x: number, y: number): [number, number, number, number] {
   const d = PNG.sync.read(png);
   const off = (y * d.width + x) * 4;
-  return [d.data[off], d.data[off + 1], d.data[off + 2], d.data[off + 3]];
+  return [d.data[off]!, d.data[off + 1]!, d.data[off + 2]!, d.data[off + 3]!];
 }
 
 describe('renderVacuumPng overlays', () => {
@@ -211,14 +211,14 @@ describe('renderVacuumPng overlays', () => {
     let painted = 0;
     for (let y = 14; y < 26; y += 1) {
       for (let x = 14; x < 26; x += 1) {
-        if (withLabel.data[(y * withLabel.width + x) * 4 + 3] > 0) painted += 1;
+        if ((withLabel.data[(y * withLabel.width + x) * 4 + 3] ?? 0) > 0) painted += 1;
       }
     }
     expect(painted).toBeGreaterThan(0);
     const withoutLabel = PNG.sync.read(renderVacuumPng(map, { scale: 2 }));
     let paintedOff = 0;
     for (let i = 3; i < withoutLabel.data.length; i += 4) {
-      if (withoutLabel.data[i] > 0) paintedOff += 1;
+      if ((withoutLabel.data[i] ?? 0) > 0) paintedOff += 1;
     }
     expect(paintedOff).toBe(0);
   });
