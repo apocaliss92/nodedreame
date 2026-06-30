@@ -1,6 +1,6 @@
 {
   "name": "@apocaliss92/nodedreame",
-  "version": "1.11.6",
+  "version": "1.11.8",
   "publishConfig": {
     "access": "public"
   },

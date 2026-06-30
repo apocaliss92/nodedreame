@@ -173,15 +173,38 @@ describe('getCachedProperties (cloud shadow / iotstatus/props)', () => {
   });
 });
 
-describe('getBatchDeviceDatas (endpoint gap)', () => {
-  it('rejects with DreameApiError describing the unrecovered live endpoint', async () => {
-    // The live batch-fetch path is obfuscated in the donor and not yet
-    // recovered; the function must fail loudly (callers inject a fetcher).
+describe('getBatchDeviceDatas (iotuserdata/getDeviceData)', () => {
+  it('POSTs to /dreame-user-iot/iotuserdata/getDeviceData with {did, model: props}', async () => {
+    const fetchImpl = vi.fn<FetchImpl>(async () =>
+      ok({ code: 0, data: { 'MAP.0': 'AAA', 'MAP.info': '{}' } }),
+    );
+    await getBatchDeviceDatas({ session, region: 'eu', did: 'DID9', fetchImpl }, ['MAP', 'M_PATH']);
+    const [url] = fetchImpl.mock.calls[0]!;
+    expect(url).toBe('https://eu.iot.dreame.tech:13267/dreame-user-iot/iotuserdata/getDeviceData');
+    const body = captureBody(fetchImpl);
+    expect(body.did).toBe('DID9');
+    // The firmware spells the requested key-group list `model`.
+    expect(body.model).toEqual(['MAP', 'M_PATH']);
+  });
+
+  it('returns the flat chunk dict from data', async () => {
+    const fetchImpl = vi.fn<FetchImpl>(async () =>
+      ok({ code: 0, data: { 'MAP.0': 'chunk0', 'MAP.1': 'chunk1', 'MAP.info': '{"i":0}' } }),
+    );
+    const res = await getBatchDeviceDatas({ session, region: 'eu', did: 'D', fetchImpl }, ['MAP']);
+    expect(res).toEqual({ 'MAP.0': 'chunk0', 'MAP.1': 'chunk1', 'MAP.info': '{"i":0}' });
+  });
+
+  it('returns {} when data is absent', async () => {
+    const fetchImpl = vi.fn<FetchImpl>(async () => ok({ code: 0 }));
+    const res = await getBatchDeviceDatas({ session, region: 'eu', did: 'D', fetchImpl }, []);
+    expect(res).toEqual({});
+  });
+
+  it('throws DreameApiError when code !== 0', async () => {
+    const fetchImpl = vi.fn<FetchImpl>(async () => ok({ code: 10001, msg: 'bad request' }));
     await expect(
-      getBatchDeviceDatas({ session, region: 'eu', did: 'DID9' }, ['MAP', 'M_PATH']),
+      getBatchDeviceDatas({ session, region: 'eu', did: 'D', fetchImpl }, ['MAP']),
     ).rejects.toBeInstanceOf(DreameApiError);
-    await expect(
-      getBatchDeviceDatas({ session, region: 'eu', did: 'DID9' }, ['MAP']),
-    ).rejects.toThrow(/not yet recovered/);
   });
 });

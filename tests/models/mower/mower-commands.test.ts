@@ -152,6 +152,23 @@ describe('MowerDevice commands -> wire payloads', () => {
     await m.close();
   });
 
+  it('setCurrentMap sends 2:50 o:200 idx (id treated as index without a fetched map)', async () => {
+    const { m, actions } = build();
+    await m.setCurrentMap(1);
+    expect(actions[0]).toEqual({
+      siid: 2,
+      aiid: 50,
+      in: [{ m: 'a', p: 0, o: 200, d: { idx: 1 } }],
+    });
+    await m.close();
+  });
+
+  it('throws when the model lacks map capability for setCurrentMap', async () => {
+    const { m } = build('dreame.mower.zzz999'); // fallback: canMap off
+    await expect(m.setCurrentMap(1)).rejects.toThrow(/map/i);
+    await m.close();
+  });
+
   it('throws RangeError on empty zone/edge/spot lists', async () => {
     const { m } = build();
     await expect(m.startMowingZones([])).rejects.toBeInstanceOf(RangeError);

@@ -1,4 +1,5 @@
 import { BaseDevice, type BaseDeviceInput } from '../../device/base-device.js';
+import { getBatchDeviceDatas as defaultGetBatchDeviceDatas } from '../../cloud/commands.js';
 import {
   MOWER_ACTION,
   MOWER_PROP,
@@ -7,6 +8,7 @@ import {
   buildGetConsumablePayload,
   buildResumePayload,
   buildSetConsumablePayload,
+  buildSetCurrentMapPayload,
   buildSpotPayload,
   buildZonePayload,
 } from './properties.js';
@@ -98,7 +100,16 @@ export class MowerDevice extends BaseDevice {
       capabilities: input.capabilities ?? new MowerCapabilityResolver().resolve(input.device.model),
     });
     this.#caps = getMowerCapabilities(input.device.model);
-    this.#fetchBatch = input.getBatchDeviceDatas ?? null;
+    // Default to the live cloud batch-fetch (now that the endpoint is recovered),
+    // building the account-auth CommonInput from the protected map-fetch
+    // accessors. Tests/callers may still inject a fake via `getBatchDeviceDatas`.
+    this.#fetchBatch =
+      input.getBatchDeviceDatas ??
+      ((did, props) =>
+        defaultGetBatchDeviceDatas(
+          { session: this.currentSession(), region: this.region, did },
+          props,
+        ));
   }
 
   /** Rich, mower-specific capability record. */
@@ -284,6 +295,21 @@ export class MowerDevice extends BaseDevice {
       throw new RangeError('startMowingSpots: spotAreaIds must not be empty');
     }
     return this.#sendTask(buildSpotPayload(spotAreaIds.map((s) => Math.trunc(s))));
+  }
+
+  /**
+   * Switch the mower's ACTIVE map (2:50 o:200). Takes a map *id* (as carried by
+   * {@link MowerMap.availableMaps}/`currentMapId`) and resolves it to the
+   * firmware's map *index* via the last-fetched map; falls back to treating the
+   * id as the index when no map has been fetched yet. Mirrors the donor
+   * `set_current_map`. Capability-gated on `canMap`.
+   */
+  async setCurrentMap(mapId: number): Promise<unknown> {
+    this.#requireCap(this.#caps.canMap, 'setCurrentMap', 'map switching');
+    const id = Math.trunc(mapId);
+    const entry = this.#lastMap?.availableMaps.find((m) => m.mapId === id);
+    const index = entry?.mapIndex ?? id;
+    return this.#sendTask(buildSetCurrentMapPayload(index));
   }
 
   // -- CMS consumables ----------------------------------------------------

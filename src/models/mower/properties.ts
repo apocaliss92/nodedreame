@@ -61,6 +61,7 @@ export const TASK_OPCODE = {
   EDGE: 101,
   ZONE: 102,
   SPOT: 103,
+  SET_CURRENT_MAP: 200,
 } as const;
 
 /** A fresh resume opcode object (never share the frozen literal across calls). */
@@ -106,6 +107,16 @@ export function buildSpotPayload(spotAreaIds: number[]): {
   d: { area: number[] };
 } {
   return { m: 'a', p: 0, o: TASK_OPCODE.SPOT, d: { area: [...spotAreaIds] } };
+}
+
+/** Switch active map: o:200, idx=mapIndex. device.py _build_set_current_map_payload. */
+export function buildSetCurrentMapPayload(mapIndex: number): {
+  m: string;
+  p: number;
+  o: number;
+  d: { idx: number };
+} {
+  return { m: 'a', p: 0, o: TASK_OPCODE.SET_CURRENT_MAP, d: { idx: mapIndex } };
 }
 
 /**

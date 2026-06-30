@@ -100,6 +100,22 @@ export const CachedPropsResponseSchema = z
   .passthrough();
 export type CachedPropsResponse = z.infer<typeof CachedPropsResponseSchema>;
 
+/**
+ * Batched device-data read response (`dreame-user-iot/iotuserdata/getDeviceData`).
+ * `data` is a flat dict of hierarchical keys (`MAP.0`, `MAP.info`, `M_PATH.0`,
+ * `SETTINGS.*`, `SCHEDULE.*`, …) → string/number chunk values. Permissive: the
+ * exact key set is device/firmware-specific; on an error code `data` may be
+ * absent entirely.
+ */
+export const BatchDeviceDataResponseSchema = z
+  .object({
+    code: z.number().optional(),
+    msg: z.string().nullish(),
+    data: z.record(z.string(), z.unknown()).optional(),
+  })
+  .passthrough();
+export type BatchDeviceDataResponse = z.infer<typeof BatchDeviceDataResponseSchema>;
+
 export const SendCommandResponseSchema = z
   .object({
     code: z.number().optional(),

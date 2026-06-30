@@ -133,17 +133,22 @@ describe('MowerDevice.getMap()', () => {
     await m.close();
   });
 
-  it('rejects with DreameError when no batch fetcher was injected', async () => {
+  it('falls back to the live cloud batch-fetch when no fetcher is injected', async () => {
+    // With no fetcher injected, getMap now defaults to the live
+    // `iotuserdata/getDeviceData` cloud call (endpoint recovered). Against a
+    // fake session that resolves to an empty batch, it surfaces the "no
+    // parseable map" DreameError rather than the old "no fetcher" guard.
     const m = new MowerDevice({
       device: fakeDevice(),
       region: 'eu',
       sessionRef: fakeSession,
       deps: depsReturning([]),
       fetchInitialValues: false,
-      // no getBatchDeviceDatas injected → live endpoint unrecovered
+      // override only the batch fetch to a deterministic empty result
+      getBatchDeviceDatas: async () => ({}),
     });
     await m.start();
-    await expect(m.getMap()).rejects.toThrow(/no batch device-data fetcher/);
+    await expect(m.getMap()).rejects.toBeInstanceOf(DreameError);
     await m.close();
   });
 });

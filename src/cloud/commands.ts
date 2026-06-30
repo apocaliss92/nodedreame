@@ -19,6 +19,7 @@ import { z } from 'zod';
 import {
   SendCommandResponseSchema,
   CachedPropsResponseSchema,
+  BatchDeviceDataResponseSchema,
   PropertyResultSchema,
   type SendCommandResponse,
 } from '../transport/schemas.js';
@@ -229,39 +230,52 @@ export async function callAction(
 }
 
 /**
- * Fetch batched device data (the mower's vector map: `MAP.*` / `M_PATH.*`
- * chunk keys) for a set of property groups.
+ * Fetch batched device data (the mower's vector map: `MAP.*` / `M_PATH.*` chunk
+ * keys, plus `SETTINGS.*` / `SCHEDULE.*` / `OTA_INFO.*` groups) for a set of
+ * property groups.
  *
- * ⚠️ ENDPOINT GAP — LIVE PATH UNRECOVERED. The concrete batch-fetch endpoint
- * path is OBFUSCATED in the donor (`antondaubert/dreame-mower` builds it from
- * an encoded `_api_strings` table — entries `[23]/[26]/[44]` — that we have not
- * decoded). The donor's `cloud_base` resolves to a `/dreame-iot-com-<prefix>/…`
- * route we cannot reproduce byte-exact without that table, and we will NOT
- * invent a wrong URL. Recovering the real path is a documented follow-up; until
- * then this function will THROW if invoked against the live cloud.
+ * Hits `dreame-user-iot/iotuserdata/getDeviceData` — the SAME account-auth host
+ * as {@link getCachedProperties} (NOT the `device/sendCommand` envelope), so it
+ * resolves the cloud-stored data for a standby/sleeping robot. Body is
+ * `{ did, model: props }` where `model` (the firmware's spelling) carries the
+ * requested key groups (e.g. `['MAP','M_PATH']`); an empty list returns every
+ * group. The response `data` is a flat dict of `KEY.idx` chunk values that
+ * {@link import('../models/mower/map/parser.js').parseBatchMapData} reassembles.
  *
- * The map PARSER (`parseBatchMapData`) is the shipped deliverable and is fully
- * unit-tested with synthetic batch fixtures. `MowerDevice.getMap` consumes an
- * INJECTED {@link BatchDeviceDataFetcher} seam, so tests (and any caller that
- * already knows the path) drive it with no dependency on this stub.
- *
- * @throws DreameApiError always — the endpoint path is not yet recovered.
+ * Endpoint recovered from the Tasshack `dreame-vacuum` protocol table
+ * (`_strings[23]/[26]/[44]` = `dreame-user-iot/iotuserdata/getDeviceData`) and
+ * the donor `antondaubert/dreame-mower` device-data analysis tool.
  */
 export async function getBatchDeviceDatas(
   base: CommonInput,
   props: string[],
+  opts: CallOptions = {},
 ): Promise<Record<string, unknown>> {
-  // Deliberately unreachable in production until the endpoint is recovered. The
-  // request is described in the error so the gap is self-documenting at runtime.
-  return Promise.reject(
-    new DreameApiError(
-      `getBatchDeviceDatas(did=${base.did}, props=${JSON.stringify(props)}): live ` +
-        'batch-fetch endpoint path is not yet recovered (obfuscated in the donor). ' +
-        'Inject a BatchDeviceDataFetcher into MowerDevice instead, or supply the ' +
-        'resolved path once known.',
-      0,
-    ),
-  );
+  const ctx = base.ctx ?? RequestContext.from({ ...base, host: base.apiHost });
+  const signal = opts.signal ?? base.signal;
+  const timeoutMs = opts.timeoutMs ?? base.timeoutMs;
+
+  const raw = await httpPostJsonBody<BaseResponse>({
+    ctx,
+    path: '/dreame-user-iot/iotuserdata/getDeviceData',
+    accessToken: base.session.accessToken,
+    body: { did: base.did, model: props },
+    context: 'batch device data',
+    ...(signal !== undefined ? { signal } : {}),
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+  });
+
+  const parsed = BatchDeviceDataResponseSchema.parse(raw);
+  // The HTTP layer already rejects code !== 0; this is a defensive backstop so
+  // the contract (code === 0 ⇒ success) holds even if that check is bypassed.
+  if (parsed.code !== undefined && parsed.code !== 0) {
+    throw new DreameApiError(
+      `batch device data rejected: code=${parsed.code} msg=${parsed.msg ?? '?'}`,
+      200,
+      parsed,
+    );
+  }
+  return parsed.data ?? {};
 }
 
 function extractResultArray(res: SendCommandResponse, context: string): PropertyResult[] {
