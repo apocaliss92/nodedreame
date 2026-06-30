@@ -142,11 +142,11 @@ describe('renderVacuumPng overlays', () => {
   it('honours the colorScheme palette for floor fills', () => {
     // Floor run at grid row 5 → pixel row (height-1-5)=14 after the Y flip.
     const map = baseMap({ layers: [{ type: 'floor', runs: [[5, 5, 1]] }] });
-    const light = rgbAt(renderVacuumPng(map, { colorScheme: 'dreame-light' }), 5, 14);
-    const dark = rgbAt(renderVacuumPng(map, { colorScheme: 'dreame-dark' }), 5, 14);
-    expect(light).not.toEqual(dark);
-    expect(light.slice(0, 3)).toEqual([210, 222, 235]);
-    expect(dark.slice(0, 3)).toEqual([40, 46, 56]);
+    const flat = rgbAt(renderVacuumPng(map, { colorScheme: 'flat' }), 5, 14);
+    const dark = rgbAt(renderVacuumPng(map, { colorScheme: 'dark-neon' }), 5, 14);
+    expect(flat).not.toEqual(dark);
+    expect(flat.slice(0, 3)).toEqual([236, 239, 241]);
+    expect(dark.slice(0, 3)).toEqual([16, 18, 27]);
   });
 
   it('draws the robot marker, and omits it when showRobot is false', () => {

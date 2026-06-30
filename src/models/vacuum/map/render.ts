@@ -36,24 +36,13 @@ import type {
   MapCleanedAreaOverlay,
 } from './types.js';
 
-/**
- * A named map palette. The first four mirror the HA integration's `color_scheme`
- * choices; `flat` / `dark-neon` / `materico` are node-dreame additions for
- * distinct visual styles.
- */
-export type MapColorScheme =
-  | 'dreame-light'
-  | 'dreame-dark'
-  | 'mijia-light'
-  | 'tasshack'
-  | 'flat'
-  | 'dark-neon'
-  | 'materico';
+/** A named map palette — node-dreame's own distinct visual styles. */
+export type MapColorScheme = 'flat' | 'dark-neon' | 'materico';
 
 export interface RenderVacuumPngOptions {
   /** Integer upscale factor (nearest-neighbour). Default 1. */
   scale?: number;
-  /** Palette. Default `'dreame-light'`. */
+  /** Palette. Default `'flat'`. */
   colorScheme?: MapColorScheme;
   /** Draw the cleaning/mopping path polylines. Default true. */
   showPath?: boolean;
@@ -104,78 +93,6 @@ interface Palette {
 }
 
 const SCHEMES: Record<MapColorScheme, Palette> = {
-  'dreame-light': {
-    floor: [210, 222, 235, 255],
-    wall: [60, 60, 60, 255],
-    carpet: [180, 150, 120, 200],
-    segSat: 0.45,
-    segVal: 0.95,
-    path: [60, 110, 180, 235],
-    robotBody: [40, 70, 110, 255],
-    robotHeading: [255, 255, 255, 255],
-    charger: [40, 160, 80, 255],
-    noGoFill: [220, 60, 60, 70],
-    noGoBorder: [200, 40, 40, 220],
-    noMopFill: [60, 120, 220, 60],
-    noMopBorder: [40, 90, 200, 200],
-    virtualWall: [200, 40, 40, 230],
-    obstacle: [230, 150, 30, 255],
-    label: [40, 40, 40, 255],
-  },
-  'dreame-dark': {
-    floor: [40, 46, 56, 255],
-    wall: [15, 15, 18, 255],
-    carpet: [80, 66, 52, 200],
-    segSat: 0.5,
-    segVal: 0.62,
-    path: [120, 170, 230, 235],
-    robotBody: [120, 170, 230, 255],
-    robotHeading: [20, 24, 30, 255],
-    charger: [60, 200, 110, 255],
-    noGoFill: [220, 70, 70, 80],
-    noGoBorder: [230, 70, 70, 220],
-    noMopFill: [70, 130, 230, 70],
-    noMopBorder: [80, 140, 235, 210],
-    virtualWall: [230, 70, 70, 235],
-    obstacle: [240, 180, 60, 255],
-    label: [225, 230, 240, 255],
-  },
-  'mijia-light': {
-    floor: [225, 232, 240, 255],
-    wall: [70, 78, 92, 255],
-    carpet: [188, 162, 132, 200],
-    segSat: 0.35,
-    segVal: 0.98,
-    path: [80, 130, 200, 230],
-    robotBody: [30, 100, 200, 255],
-    robotHeading: [255, 255, 255, 255],
-    charger: [40, 170, 90, 255],
-    noGoFill: [225, 70, 70, 70],
-    noGoBorder: [205, 45, 45, 220],
-    noMopFill: [70, 130, 225, 60],
-    noMopBorder: [50, 100, 205, 200],
-    virtualWall: [205, 45, 45, 230],
-    obstacle: [235, 160, 35, 255],
-    label: [45, 52, 64, 255],
-  },
-  tasshack: {
-    floor: [200, 210, 225, 255],
-    wall: [80, 80, 95, 255],
-    carpet: [176, 148, 118, 205],
-    segSat: 0.5,
-    segVal: 0.9,
-    path: [50, 100, 170, 235],
-    robotBody: [35, 60, 100, 255],
-    robotHeading: [255, 255, 255, 255],
-    charger: [35, 150, 75, 255],
-    noGoFill: [215, 55, 55, 75],
-    noGoBorder: [195, 35, 35, 220],
-    noMopFill: [55, 115, 215, 65],
-    noMopBorder: [35, 85, 195, 205],
-    virtualWall: [195, 35, 35, 230],
-    obstacle: [225, 145, 25, 255],
-    label: [35, 42, 54, 255],
-  },
   // Flat-design: soft neutral floor, bright low-saturation segment fills, thin
   // mid-grey walls, a single vivid accent for the path.
   flat: {
@@ -277,7 +194,8 @@ function segmentColor(id: number, pal: Palette): Rgba {
 
 export function renderVacuumPng(map: VacuumMap, opts: RenderVacuumPngOptions = {}): Buffer {
   const scale = Math.max(1, Math.trunc(opts.scale ?? 1));
-  const pal = SCHEMES[opts.colorScheme ?? 'dreame-light'];
+  // Default + resilient fallback to 'flat' for any unknown/legacy scheme value.
+  const pal = SCHEMES[opts.colorScheme ?? 'flat'] ?? SCHEMES.flat;
   const w = Math.max(1, map.dimensions.width * scale);
   const h = Math.max(1, map.dimensions.height * scale);
   const png = new PNG({ width: w, height: h });
