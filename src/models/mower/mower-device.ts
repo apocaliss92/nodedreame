@@ -14,8 +14,10 @@ import {
   MowerChargingStatus,
   MowerControlAction,
   MowerFault,
+  mowerFaultSeverity,
   MowerStatus,
   MowerTaskStatus,
+  type MowerFaultSeverity,
 } from './enums.js';
 import {
   asNum,
@@ -25,10 +27,12 @@ import {
   parseControlStatus,
   parseMowerConsumables,
   parseMowerHeartbeat,
+  parseMowingProgress,
   parseTaskDescriptor,
   type MowerConsumableKey,
   type MowerConsumableReading,
   type MowerControlState,
+  type MowerMowingProgress,
   type MowerTaskDescriptor,
   type MowerTaskSubState,
 } from './decode.js';
@@ -177,6 +181,25 @@ export class MowerDevice extends BaseDevice {
    */
   get coverageTargetPct(): number | null {
     return this.task?.coverageTarget ?? null;
+  }
+  /**
+   * Live mowing PROGRESS decoded from the POSE_COVERAGE (1:4) task block —
+   * `{progressPercent, currentAreaSqm, totalAreaSqm}` — or null when 1:4 carries
+   * no task block (idle / pose-only frame). This is the byte-accurate progress
+   * the Dreamehome app shows (vs {@link coverageTargetPct}, the task TARGET).
+   */
+  get mowingProgress(): MowerMowingProgress | null {
+    return parseMowingProgress(
+      this.getProperty(MOWER_PROP.POSE_COVERAGE.siid, MOWER_PROP.POSE_COVERAGE.piid)?.value,
+    );
+  }
+  /** Mowing completion percent (0..100) from {@link mowingProgress}, or null. */
+  get mowingProgressPct(): number | null {
+    return this.mowingProgress?.progressPercent ?? null;
+  }
+  /** Severity of the current DEVICE_CODE (2:2) — info / warning / error. */
+  get faultSeverity(): MowerFaultSeverity {
+    return mowerFaultSeverity(this.faultRaw);
   }
   /** Parsed per-zone control status (2:56), or null. */
   get controlStatus(): MowerControlState | null {
@@ -370,6 +393,7 @@ export class MowerDevice extends BaseDevice {
   /** Props worth seeding on start() / polling — exported for the facade. */
   static readonly DEFAULT_PROPS = [
     MOWER_PROP.HEARTBEAT,
+    MOWER_PROP.POSE_COVERAGE,
     MOWER_PROP.STATUS,
     MOWER_PROP.DEVICE_CODE,
     MOWER_PROP.BATTERY,

@@ -251,14 +251,19 @@ export function renderVacuumPng(map: VacuumMap, opts: RenderVacuumPngOptions = {
     }
   }
 
-  // 5) AI obstacles — small filled diamonds, coloured by type by default so
-  // distinct hazards read differently (the type→label table lives browser-side).
+  // 5) AI obstacles — coloured AND shaped by type by default so distinct hazards
+  // read differently (the full type→icon table lives browser-side; here we vary
+  // colour + a small shape set as a lightweight raster stand-in).
   if (opts.showObstacles !== false) {
     const byType = opts.colorObstaclesByType !== false;
     for (const ob of map.obstacles) {
       const p = worldToPx(ob.x, ob.y, dim, scale);
-      const color = byType ? obstacleColor(ob.type) : pal.obstacle;
-      drawDiamond(png, p.x, p.y, Math.max(2, scale * 2), color);
+      const r = Math.max(2, scale * 2);
+      if (byType) {
+        drawObstacleShape(png, p.x, p.y, r, ob.type, obstacleColor(ob.type));
+      } else {
+        drawDiamond(png, p.x, p.y, r, pal.obstacle);
+      }
     }
   }
 
@@ -513,6 +518,47 @@ function drawDiamond(png: PNG, cx: number, cy: number, r: number, color: Rgba): 
 function obstacleColor(type: number): Rgba {
   const hue = (Math.abs(Math.trunc(type)) * 47) % 360;
   return hsvToRgba(hue, 0.85, 0.95);
+}
+
+/** Filled axis-aligned square. */
+function drawSquare(png: PNG, cx: number, cy: number, r: number, color: Rgba): void {
+  fillRect(png, cx - r, cy - r, cx + r, cy + r, color);
+}
+
+/** Filled upward triangle (apex up), height/half-width `r`. */
+function drawTriangle(png: PNG, cx: number, cy: number, r: number, color: Rgba): void {
+  for (let dy = -r; dy <= r; dy += 1) {
+    // Width grows from apex (dy=-r) to base (dy=+r).
+    const w = Math.round(((dy + r) / (2 * r)) * r);
+    for (let dx = -w; dx <= w; dx += 1) {
+      setPixel(png, cx + dx, cy + dy, color);
+    }
+  }
+}
+
+/** Draw an AI-obstacle marker whose SHAPE varies by type (diamond / square /
+ *  triangle / disk), a lightweight raster stand-in for the app's per-type icons. */
+function drawObstacleShape(
+  png: PNG,
+  cx: number,
+  cy: number,
+  r: number,
+  type: number,
+  color: Rgba,
+): void {
+  switch (Math.abs(Math.trunc(type)) % 4) {
+    case 0:
+      drawDiamond(png, cx, cy, r, color);
+      return;
+    case 1:
+      drawSquare(png, cx, cy, r, color);
+      return;
+    case 2:
+      drawTriangle(png, cx, cy, r, color);
+      return;
+    default:
+      drawDisk(png, cx, cy, r, color);
+  }
 }
 
 /** Outline colour for low-clearance furniture zones — a translucent violet that

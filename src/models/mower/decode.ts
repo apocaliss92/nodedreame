@@ -348,3 +348,67 @@ export function parseMowerHeartbeat(value: unknown): MowerHeartbeat | null {
       : null;
   return { rawBattery, mainState, subStateRaw, taskSubState };
 }
+
+// -- mowing progress (POSE_COVERAGE 1:4 task block) --------------------------
+
+const POSE_SENTINEL = 0xce; // 206 — frames a sentinel-wrapped pose-coverage blob
+
+/** Decoded mowing-progress signal from the POSE_COVERAGE (1:4) `task` block. */
+export interface MowerMowingProgress {
+  /** 0..100 — overall mowing completion. */
+  readonly progressPercent: number;
+  /** Already-finished area in m². */
+  readonly currentAreaSqm: number;
+  /** Total target area in m². */
+  readonly totalAreaSqm: number;
+}
+
+/** Coerce a POSE_COVERAGE (1:4) raw value to a flat byte array, or null. */
+function poseBytes(value: unknown): number[] | null {
+  if (!Array.isArray(value)) return null;
+  const bytes: number[] = [];
+  for (const b of value) {
+    if (typeof b !== 'number') return null;
+    bytes.push(b);
+  }
+  return bytes;
+}
+
+/**
+ * Locate the 10-byte `task` block inside a POSE_COVERAGE (1:4) frame and decode
+ * the mowing progress. Frame shapes (ported from antondaubert/dreame-mower
+ * `pose_coverage.py`):
+ *   - sentinel-framed `[CE] pose(6) trace(15) task(10) [CE]` (33B) / `…task(10) trace2(11) [CE]` (44B)
+ *     → task at offset 22;
+ *   - alt `task(10) [CE] [+trace]` (no leading sentinel, ≥11B) → task at offset 0.
+ * The 22B `[CE] pose trace` and 13B `[CE] pose extra` shapes carry NO task → null.
+ *
+ * `task` layout: `[2:4] percent u16LE (value×100) [4:7] total u24LE (centi-m²)
+ * [7:10] finished u24LE (centi-m²)`.
+ */
+export function parseMowingProgress(value: unknown): MowerMowingProgress | null {
+  const bytes = poseBytes(value);
+  if (bytes === null || bytes.length < 11) return null;
+  const last = bytes[bytes.length - 1];
+  const head = bytes[0];
+
+  let offset: number | null = null;
+  if (head !== POSE_SENTINEL && last === POSE_SENTINEL) {
+    offset = 0; // alt format: task block leads
+  } else if (head === POSE_SENTINEL && last === POSE_SENTINEL && bytes.length >= 33) {
+    offset = 22; // standard sentinel-framed frame with a task block
+  }
+  if (offset === null || offset + 10 > bytes.length) return null;
+
+  const rawPercent = (bytes[offset + 2] ?? 0) | ((bytes[offset + 3] ?? 0) << 8);
+  const total =
+    (bytes[offset + 4] ?? 0) | ((bytes[offset + 5] ?? 0) << 8) | ((bytes[offset + 6] ?? 0) << 16);
+  const finish =
+    (bytes[offset + 7] ?? 0) | ((bytes[offset + 8] ?? 0) << 8) | ((bytes[offset + 9] ?? 0) << 16);
+
+  return {
+    progressPercent: rawPercent ? Math.min(100, rawPercent / 100) : 0,
+    currentAreaSqm: finish / 100,
+    totalAreaSqm: total / 100,
+  };
+}

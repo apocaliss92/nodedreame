@@ -8,8 +8,9 @@ import {
   parseMowerConsumables,
   mowerConsumableIndex,
   parseMowerHeartbeat,
+  parseMowingProgress,
 } from '../../../src/models/mower/decode.js';
-import { MowerControlAction } from '../../../src/models/mower/enums.js';
+import { MowerControlAction, mowerFaultSeverity } from '../../../src/models/mower/enums.js';
 
 enum Demo {
   A = 1,
@@ -261,5 +262,50 @@ describe('heartbeat task sub-state (1:1)', () => {
     expect(
       parseMowerHeartbeat([0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 128, 99, 117, 35, 0, 0, 0, 0, 0, 0]),
     ).toBeNull(); // missing 0xCE sentinels
+  });
+});
+
+describe('parseMowingProgress (POSE_COVERAGE 1:4 task block)', () => {
+  it('decodes progress from a real 33-byte sentinel-framed frame', () => {
+    // Live capture from dreame.mower.p2255 (task block @offset 22):
+    // percent u16LE 177|(23<<8)=6065 -> 60.65%; HA showed 60.6.
+    const raw = [
+      206, 61, 0, 0, 0, 0, 4, 255, 0, 0, 255, 127, 0, 128, 180, 255, 186, 255, 255, 127, 0, 128, 2,
+      2, 177, 23, 68, 22, 0, 129, 13, 0, 206,
+    ];
+    const p = parseMowingProgress(raw);
+    expect(p).not.toBeNull();
+    expect(p?.progressPercent).toBeCloseTo(60.65, 2);
+    expect(p?.totalAreaSqm).toBeCloseTo(57.0, 1);
+    expect(p?.currentAreaSqm).toBeCloseTo(34.57, 1);
+  });
+
+  it('decodes the 11-byte alt format (task block leads, trailing sentinel)', () => {
+    // [region,task, percentLE(50%), total=0, finish=0][CE]
+    const raw = [1, 1, 0x88, 0x13, 0, 0, 0, 0, 0, 0, 206];
+    const p = parseMowingProgress(raw);
+    expect(p?.progressPercent).toBeCloseTo(50, 2); // 0x1388 = 5000 / 100
+  });
+
+  it('returns null for pose-only / non-task frames and malformed input', () => {
+    expect(parseMowingProgress([206, 1, 2, 3, 4, 5, 6, 206])).toBeNull(); // 8B, no task
+    expect(parseMowingProgress('nope')).toBeNull();
+    expect(parseMowingProgress(null)).toBeNull();
+    expect(parseMowingProgress([1, 2, 3])).toBeNull(); // too short
+  });
+});
+
+describe('mowerFaultSeverity', () => {
+  it('classifies device codes by the MowerFault severity annotations', () => {
+    expect(mowerFaultSeverity(0)).toBe('info'); // NoDeviceCode
+    expect(mowerFaultSeverity(1)).toBe('error'); // Tilted
+    expect(mowerFaultSeverity(30)).toBe('error'); // MaintainLoss
+    expect(mowerFaultSeverity(31)).toBe('warning'); // BackChargeFailed
+    expect(mowerFaultSeverity(37)).toBe('error'); // PathImpassable
+    expect(mowerFaultSeverity(45)).toBe('warning'); // AutobuildSide
+    expect(mowerFaultSeverity(50)).toBe('info'); // TaskStart
+    expect(mowerFaultSeverity(73)).toBe('error'); // TopCoverOpen
+    expect(mowerFaultSeverity(null)).toBe('info');
+    expect(mowerFaultSeverity(999)).toBe('info'); // unknown
   });
 });

@@ -110,7 +110,9 @@ export {
   MowerControlAction,
   MowerTaskStatus,
   MowerFault,
+  mowerFaultSeverity,
 } from './models/mower/enums.js';
+export type { MowerFaultSeverity } from './models/mower/enums.js';
 export {
   getMowerCapabilities,
   MowerCapabilityResolver,
@@ -125,8 +127,10 @@ export {
   extractMowerConsumableValues,
   mowerConsumableIndex,
   parseMowerHeartbeat,
+  parseMowingProgress,
   MOWER_TASK_SUBSTATES,
 } from './models/mower/decode.js';
+export type { MowerMowingProgress } from './models/mower/decode.js';
 export type {
   MowerConsumableKey,
   MowerConsumableReading,

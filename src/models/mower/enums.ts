@@ -145,3 +145,18 @@ export enum MowerFault {
   PauseTimeoutReturning = 72, // INFO
   TopCoverOpen = 73, // ERROR
 }
+
+/** Severity class of a mower DEVICE_CODE (2:2 / {@link MowerFault}). */
+export type MowerFaultSeverity = 'info' | 'warning' | 'error';
+
+/**
+ * Classify a mower device-code by severity, matching the INFO/WARNING/ERROR
+ * annotations on {@link MowerFault}. Most codes are status/INFO (e.g. 50
+ * TaskStart); only a subset are actionable. Unknown codes default to `info`.
+ */
+export function mowerFaultSeverity(code: number | null): MowerFaultSeverity {
+  if (code === null) return 'info';
+  if ((code >= 1 && code <= 30) || code === 37 || code === 73) return 'error';
+  if ((code >= 31 && code <= 36) || (code >= 38 && code <= 45)) return 'warning';
+  return 'info';
+}

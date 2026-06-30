@@ -27,6 +27,7 @@ import type {
   MapDimensions,
   MapPose,
   MapTail,
+  RawSegInf,
 } from './types.js';
 import { ANGLE_ABSENT, HEADER_SIZE, looksLikeBase64Zlib, unwrapEnvelope } from './envelope.js';
 import type { MapHeader } from './header.js';
@@ -80,29 +81,41 @@ export function decodeVacuumMap(
     header.frameType === 'I' && pixelGrid.length === header.width * header.height;
   const layers = canDecodePixels ? decodePixelGridFsm1(pixelGrid, header.width, header.height) : [];
 
-  const segments = canDecodePixels ? collectSegments(layers, dimensions, tail) : [];
   const paths = parsePathTr(tail.tr ?? '');
   const obstacles = parseObstacles(tail.ai_obstacle ?? []);
   let geometry = parseTailGeometry(tail);
   // The persistent saved-map blob is embedded inline as `tail.rism`
   // (URL-safe-base64 + zlib + same envelope shape). On r2532a fw
   // 4.3.9_2199 the outer tail's geometry blocks are absent and the
-  // geometry lives only in the inner saved-map's tail. Recurse to
-  // surface it; if the inner blob fails to decode (corrupt,
-  // unexpected shape, missing AES IV, etc.) leave the outer values
-  // as-is and swallow the error — geometry decode failure must
-  // never break pixel/path/obstacle decode of the outer frame.
-  // Recurses one level only — the inner saved-map blob does not
-  // carry its own `rism`.
-  if (!isGeometryComplete(geometry) && typeof tail.rism === 'string' && tail.rism.length > 0) {
+  // geometry lives only in the inner saved-map's tail. The live frame's
+  // `seg_inf` also typically OMITS the user room NAMES — those live in the
+  // saved map. Recurse once to surface geometry AND names; if the inner blob
+  // fails to decode (corrupt / unexpected shape / missing AES IV) leave the
+  // outer values as-is and swallow — must never break the outer frame.
+  // Recurses one level only — the inner saved-map blob carries no `rism`.
+  let segTail = tail;
+  const outerHasNames = Object.values(tail.seg_inf ?? {}).some(
+    (m) => typeof m?.name === 'string' && m.name.length > 0,
+  );
+  if (
+    (!isGeometryComplete(geometry) || !outerHasNames) &&
+    typeof tail.rism === 'string' &&
+    tail.rism.length > 0
+  ) {
     try {
       const innerInflated = unwrapEnvelope(tail.rism);
       const { tail: innerTail } = parseFrame(innerInflated);
-      geometry = coalesceGeometry(geometry, parseTailGeometry(innerTail));
+      if (!isGeometryComplete(geometry)) {
+        geometry = coalesceGeometry(geometry, parseTailGeometry(innerTail));
+      }
+      if (!outerHasNames && innerTail.seg_inf) {
+        segTail = mergeSegInfNames(tail, innerTail.seg_inf);
+      }
     } catch {
       // intentional — outer frame remains valid even if rism is unreadable
     }
   }
+  const segments = canDecodePixels ? collectSegments(layers, dimensions, segTail) : [];
   const cleanedArea = typeof tail.decmap === 'string' ? parseCleanedAreaOverlay(tail.decmap) : null;
 
   return {
@@ -146,6 +159,25 @@ export function applyVacuumPFrame(
       ? mergePFrameEnvelope(prev, pframe, opts.prev, opts.pframe)
       : mergePFrame(prev, pframe);
   return { buffer: merged, data: decodeVacuumMap(merged) };
+}
+
+/**
+ * Merge saved-map (`rism`) `seg_inf` NAMES into the outer tail so
+ * {@link collectSegments} surfaces real room names. Outer fields win for every
+ * key EXCEPT `name`, which is taken from the inner saved map when the outer
+ * entry has no (non-empty) name. Returns a new tail (no mutation).
+ */
+function mergeSegInfNames(tail: MapTail, innerSegInf: Record<string, RawSegInf>): MapTail {
+  const outer = tail.seg_inf ?? {};
+  const ids = new Set([...Object.keys(outer), ...Object.keys(innerSegInf)]);
+  const merged: Record<string, RawSegInf> = {};
+  for (const id of ids) {
+    const o = outer[id] ?? {};
+    const inner = innerSegInf[id] ?? {};
+    const name = typeof o.name === 'string' && o.name.length > 0 ? o.name : inner.name;
+    merged[id] = { ...inner, ...o, ...(name !== undefined ? { name } : {}) };
+  }
+  return { ...tail, seg_inf: merged };
 }
 
 function mergeDimensions(header: MapHeader, tail: MapTail): MapDimensions {
