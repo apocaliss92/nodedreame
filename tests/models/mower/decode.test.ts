@@ -7,6 +7,7 @@ import {
   extractMowerConsumableValues,
   parseMowerConsumables,
   mowerConsumableIndex,
+  parseMowerHeartbeat,
 } from '../../../src/models/mower/decode.js';
 import { MowerControlAction } from '../../../src/models/mower/enums.js';
 
@@ -220,5 +221,45 @@ describe('CMS consumables', () => {
 
   it('returns null readings on a malformed response', () => {
     expect(parseMowerConsumables({ foo: 'bar' })).toBeNull();
+  });
+});
+
+describe('heartbeat task sub-state (1:1)', () => {
+  // Real captured frames from a live dreame.mower.p2255.
+  it('returns null task sub-state when not in the mowing main-state', () => {
+    const hb = parseMowerHeartbeat([
+      206, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 161, 255, 0, 0, 128, 204, 127, 206,
+    ]);
+    expect(hb).not.toBeNull();
+    expect(hb?.mainState).toBe(0); // (161 & 0x0F) - 1
+    expect(hb?.rawBattery).toBe(100);
+    expect(hb?.taskSubState).toBeNull();
+  });
+
+  it('decodes starting (subState 34) while mowing', () => {
+    const hb = parseMowerHeartbeat([
+      206, 0, 0, 0, 0, 0, 0, 4, 0, 0, 128, 100, 213, 34, 0, 54, 128, 204, 127, 206,
+    ]);
+    expect(hb?.mainState).toBe(4);
+    expect(hb?.taskSubState).toBe('starting');
+  });
+
+  it('decodes mowing (subState 35) and the battery byte', () => {
+    const hb = parseMowerHeartbeat([
+      206, 0, 0, 0, 0, 0, 0, 4, 0, 0, 128, 99, 117, 35, 7, 0, 128, 204, 127, 206,
+    ]);
+    expect(hb?.mainState).toBe(4);
+    expect(hb?.subStateRaw).toBe(35);
+    expect(hb?.taskSubState).toBe('mowing');
+    expect(hb?.rawBattery).toBe(99);
+  });
+
+  it('returns null on a malformed / mis-sentinelled / short payload', () => {
+    expect(parseMowerHeartbeat(null)).toBeNull();
+    expect(parseMowerHeartbeat('x')).toBeNull();
+    expect(parseMowerHeartbeat([1, 2, 3])).toBeNull(); // too short
+    expect(
+      parseMowerHeartbeat([0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 128, 99, 117, 35, 0, 0, 0, 0, 0, 0]),
+    ).toBeNull(); // missing 0xCE sentinels
   });
 });

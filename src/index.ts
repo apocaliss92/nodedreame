@@ -124,8 +124,15 @@ export {
   parseMowerConsumables,
   extractMowerConsumableValues,
   mowerConsumableIndex,
+  parseMowerHeartbeat,
+  MOWER_TASK_SUBSTATES,
 } from './models/mower/decode.js';
-export type { MowerConsumableKey, MowerConsumableReading } from './models/mower/decode.js';
+export type {
+  MowerConsumableKey,
+  MowerConsumableReading,
+  MowerHeartbeat,
+  MowerTaskSubState,
+} from './models/mower/decode.js';
 
 // --- Phase 5: maps --------------------------------------------------------
 // Public map surface: the structured model types + the two renderers. The

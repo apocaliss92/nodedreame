@@ -274,3 +274,77 @@ export function parseMowerConsumables(result: unknown): readonly MowerConsumable
     };
   });
 }
+
+// -- heartbeat task sub-state (HEARTBEAT 1:1) --------------------------------
+
+/** Decoded mowing task sub-state (heartbeat byte 13), or null when no mowing
+ *  session is in progress. Ported from antondaubert/dreame-mower
+ *  `property_misc.py` Property11Handler. */
+export type MowerTaskSubState =
+  | 'idle'
+  | 'starting'
+  | 'mowing'
+  | 'paused'
+  | 'finished'
+  | 'failed'
+  | 'exit'
+  | 'returning-to-dock';
+
+/** Ordered sub-state table; the heartbeat encodes `subState = base + index`. */
+export const MOWER_TASK_SUBSTATES: readonly MowerTaskSubState[] = [
+  'idle',
+  'starting',
+  'mowing',
+  'paused',
+  'finished',
+  'failed',
+  'exit',
+  'returning-to-dock',
+];
+
+const HEARTBEAT_SENTINEL = 0xce; // 206 — byte[0] and byte[last]
+const HEARTBEAT_SUBSTATE_BASE = 33;
+const HEARTBEAT_MAIN_STATE_MOWING = 4;
+
+/** Typed heartbeat decode: battery byte, main-state, and (when mowing) the task
+ *  sub-state. */
+export interface MowerHeartbeat {
+  /** Raw battery byte (byte 11) — percent with a charging flag in the high bits. */
+  readonly rawBattery: number;
+  /** `(byte12 & 0x0F) - 1`; 4 = mowing. */
+  readonly mainState: number;
+  /** Raw sub-state byte (byte 13). */
+  readonly subStateRaw: number;
+  /** Decoded sub-state when a mowing session is active, else null. */
+  readonly taskSubState: MowerTaskSubState | null;
+}
+
+/**
+ * Decode the 20-byte HEARTBEAT (1:1) blob. Returns null when the payload is not a
+ * well-formed heartbeat (wrong length / missing 0xCE sentinels). The task
+ * sub-state is only meaningful while `mainState === 4` (mowing); in any other
+ * main state there is no active mowing task (returns `taskSubState: null`).
+ */
+export function parseMowerHeartbeat(value: unknown): MowerHeartbeat | null {
+  if (!Array.isArray(value) || value.length < 14) {
+    return null;
+  }
+  const bytes: number[] = [];
+  for (const b of value) {
+    if (typeof b !== 'number') {
+      return null;
+    }
+    bytes.push(b);
+  }
+  if (bytes[0] !== HEARTBEAT_SENTINEL || bytes[bytes.length - 1] !== HEARTBEAT_SENTINEL) {
+    return null;
+  }
+  const rawBattery = bytes[11] ?? 0;
+  const mainState = ((bytes[12] ?? 0) & 0x0f) - 1;
+  const subStateRaw = bytes[13] ?? 0;
+  const taskSubState =
+    mainState === HEARTBEAT_MAIN_STATE_MOWING
+      ? (MOWER_TASK_SUBSTATES[subStateRaw - HEARTBEAT_SUBSTATE_BASE] ?? null)
+      : null;
+  return { rawBattery, mainState, subStateRaw, taskSubState };
+}

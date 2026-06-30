@@ -24,11 +24,13 @@ import {
   mowerConsumableIndex,
   parseControlStatus,
   parseMowerConsumables,
+  parseMowerHeartbeat,
   parseTaskDescriptor,
   type MowerConsumableKey,
   type MowerConsumableReading,
   type MowerControlState,
   type MowerTaskDescriptor,
+  type MowerTaskSubState,
 } from './decode.js';
 import {
   MowerCapabilityResolver,
@@ -149,6 +151,19 @@ export class MowerDevice extends BaseDevice {
    */
   get fault(): MowerFault | null {
     return FAULT(this.faultRaw);
+  }
+  /**
+   * Live mowing task sub-state decoded from the HEARTBEAT (1:1) blob —
+   * idle/starting/mowing/paused/finished/failed/exit/returning-to-dock — or null
+   * when no mowing session is in progress (or the heartbeat is absent). This is
+   * the donor's "current task" sensor; the heartbeat is push-only (the mower does
+   * not answer live reads), so it tracks the device while it is actively mowing.
+   */
+  get taskSubState(): MowerTaskSubState | null {
+    const hb = parseMowerHeartbeat(
+      this.getProperty(MOWER_PROP.HEARTBEAT.siid, MOWER_PROP.HEARTBEAT.piid)?.value,
+    );
+    return hb?.taskSubState ?? null;
   }
   /** Parsed scheduling task descriptor (2:50), or null. */
   get task(): MowerTaskDescriptor | null {
@@ -354,6 +369,7 @@ export class MowerDevice extends BaseDevice {
 
   /** Props worth seeding on start() / polling — exported for the facade. */
   static readonly DEFAULT_PROPS = [
+    MOWER_PROP.HEARTBEAT,
     MOWER_PROP.STATUS,
     MOWER_PROP.DEVICE_CODE,
     MOWER_PROP.BATTERY,

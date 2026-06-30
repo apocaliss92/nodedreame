@@ -13,6 +13,9 @@
 
 /** Mower service properties (subset; unnamed reverse-engineered props skipped). */
 export const MOWER_PROP = {
+  /** VERIFIED-by-donor — 20-byte heartbeat (sentinel 0xCE at [0]/[19]); byte 11
+   *  battery, byte 12 main-state, byte 13 task sub-state. See parseHeartbeat. */
+  HEARTBEAT: { siid: 1, piid: 1 } as const,
   /** VERIFIED-by-donor — pose + coverage telemetry (binary). P4 uses progress % only. */
   POSE_COVERAGE: { siid: 1, piid: 4 } as const,
   /** VERIFIED-by-donor — MowerStatus (DeviceStatus). */
