@@ -31,6 +31,7 @@ interface FakeOpts {
   password?: string;
   clientId?: string;
   rejectUnauthorized?: boolean;
+  keepalive?: number;
 }
 class FakeClient extends EventEmitter {
   subscribed: string[] = [];
@@ -379,7 +380,7 @@ describe('DreamePush — lifecycle edge cases', () => {
     expect(created).toHaveLength(0);
   });
 
-  it('rejects open() when subscribe reports an error', async () => {
+  it('rejects open() when subscribe reports an error AND ends the client (no orphan)', async () => {
     const created: FailingSubscribeClient[] = [];
     const connect = (url: string, opts: FakeOpts): FailingSubscribeClient => {
       const c = new FailingSubscribeClient(url, opts);
@@ -389,9 +390,13 @@ describe('DreamePush — lifecycle edge cases', () => {
     };
     const push = new DreamePush({ device, session: session('T'), region: 'eu', connect });
     await expect(push.open()).rejects.toThrow(/subscribe failed/);
+    // The failed client must be torn down — otherwise its (possibly ESTABLISHED)
+    // socket leaks once the caller nulls the reference.
+    expect(created).toHaveLength(1);
+    expect(created[0]!.ended).toBe(true);
   });
 
-  it('rejects open() when the broker errors before connect', async () => {
+  it('rejects open() when the broker errors before connect AND ends the client (no orphan)', async () => {
     const created: ErroringClient[] = [];
     const connect = (url: string, opts: FakeOpts): ErroringClient => {
       const c = new ErroringClient(url, opts);
@@ -402,6 +407,30 @@ describe('DreamePush — lifecycle edge cases', () => {
     const push = new DreamePush({ device, session: session('T'), region: 'eu', connect });
     push.on('error', vi.fn());
     await expect(push.open()).rejects.toThrow(/connect failed/);
+    expect(created).toHaveLength(1);
+    expect(created[0]!.ended).toBe(true);
+  });
+
+  it('keep-alive defaults to 60s and is passed to the mqtt client (library-side)', async () => {
+    const { connect, created } = makeFactory();
+    const push = new DreamePush({ device, session: session('T'), region: 'eu', connect });
+    await push.open();
+    expect(created[0]!.opts.keepalive).toBe(60);
+    await push.close();
+  });
+
+  it('honours a custom keepaliveSeconds', async () => {
+    const { connect, created } = makeFactory();
+    const push = new DreamePush({
+      device,
+      session: session('T'),
+      region: 'eu',
+      connect,
+      keepaliveSeconds: 30,
+    });
+    await push.open();
+    expect(created[0]!.opts.keepalive).toBe(30);
+    await push.close();
   });
 });
 

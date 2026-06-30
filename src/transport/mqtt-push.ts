@@ -61,6 +61,11 @@ export interface ConnectOptions {
   connectTimeout: number;
   rejectUnauthorized: boolean;
   clean: boolean;
+  /** MQTT-level keep-alive in seconds: the client PINGREQs the broker this often
+   *  so an idle connection is held open (and a dead one detected) at the protocol
+   *  layer — the connection's keep-alive belongs here, in the library, not in a
+   *  consumer-side property poll. */
+  keepalive: number;
 }
 
 /** Factory matching `mqtt.connect`'s shape we rely on (injectable for tests). */
@@ -95,6 +100,8 @@ export interface DreamePushInput {
   connect?: MqttConnectFn;
   /** Backoff before a reconnect attempt after an unexpected drop. Default 5000. */
   reconnectBackoffMs?: number;
+  /** MQTT keep-alive (PINGREQ cadence) in seconds. Default 60. `0` disables. */
+  keepaliveSeconds?: number;
   /**
    * Whether the TLS layer must reject a server certificate that does not chain
    * to a trusted public CA. Defaults to `false`: Dreame brokers present
@@ -119,6 +126,7 @@ export class DreamePush extends TypedEmitter<DreamePushEvents> {
   readonly #region: DreameRegion;
   readonly #connect: MqttConnectFn;
   readonly #backoffMs: number;
+  readonly #keepaliveSeconds: number;
   readonly #rejectUnauthorized: boolean;
   readonly #topic: string;
   #client: MqttLikeClient | null = null;
@@ -141,6 +149,7 @@ export class DreamePush extends TypedEmitter<DreamePushEvents> {
     this.#region = input.region;
     this.#connect = input.connect ?? defaultConnect;
     this.#backoffMs = input.reconnectBackoffMs ?? 5000;
+    this.#keepaliveSeconds = input.keepaliveSeconds ?? 60;
     this.#rejectUnauthorized = input.rejectUnauthorized ?? false;
     this.#topic = buildStatusTopic(this.#device, this.#session.uid, this.#region);
     // Bind once so the reference is stable across register/remove calls.
@@ -207,6 +216,7 @@ export class DreamePush extends TypedEmitter<DreamePushEvents> {
       protocolVersion: 4,
       reconnectPeriod: 0, // we drive reconnect ourselves
       connectTimeout: 15000,
+      keepalive: this.#keepaliveSeconds,
       rejectUnauthorized: this.#rejectUnauthorized,
       clean: true,
     });
@@ -217,25 +227,47 @@ export class DreamePush extends TypedEmitter<DreamePushEvents> {
     // Use the stored bound reference so teardown can reliably remove it.
     client.on('close', this.#onClose);
 
-    await new Promise<void>((resolve, reject) => {
-      const onConnect = (): void => {
-        client.removeListener('error', onError);
-        client.subscribe(this.#topic, { qos: 0 }, (err) => {
-          if (err) {
-            reject(new DreameTransportError(`mqtt subscribe failed: ${err.message}`, err));
-            return;
-          }
-          this.emit('connect');
-          resolve();
-        });
-      };
-      const onError = (err: Error): void => {
-        client.removeListener('connect', onConnect);
-        reject(new DreameTransportError(`mqtt connect failed: ${err.message}`, err));
-      };
-      client.once('connect', onConnect);
-      client.once('error', onError);
-    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const onConnect = (): void => {
+          client.removeListener('error', onError);
+          client.subscribe(this.#topic, { qos: 0 }, (err) => {
+            if (err) {
+              reject(new DreameTransportError(`mqtt subscribe failed: ${err.message}`, err));
+              return;
+            }
+            this.emit('connect');
+            resolve();
+          });
+        };
+        const onError = (err: Error): void => {
+          client.removeListener('connect', onConnect);
+          reject(new DreameTransportError(`mqtt connect failed: ${err.message}`, err));
+        };
+        client.once('connect', onConnect);
+        client.once('error', onError);
+      });
+    } catch (err) {
+      // The connect/subscribe failed AFTER the TCP socket may already be
+      // ESTABLISHED (auth or subscribe rejected post-handshake — e.g. a stale
+      // token after a re-login). Force-close it now so the socket + client
+      // object are freed. Without this, the caller (`open`/`refreshSession`/the
+      // reconnect loop) would orphan the client — `#scheduleReconnect` nulls
+      // `#client` without `end()`, leaking one ESTABLISHED connection (and its
+      // buffers) per failed attempt, which snowballs once the broker starts
+      // rejecting the pile-up. Detach our close handler first so the forced
+      // end() does not re-arm a reconnect.
+      client.removeListener('close', this.#onClose);
+      try {
+        client.end(true, {}, () => undefined);
+      } catch {
+        // best-effort — a half-open client may throw on end(); ignore.
+      }
+      if (this.#client === client) {
+        this.#client = null;
+      }
+      throw err;
+    }
   }
 
   #scheduleReconnect(): void {
