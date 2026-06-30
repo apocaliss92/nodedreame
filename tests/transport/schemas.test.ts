@@ -47,6 +47,19 @@ describe('SendCommandResponseSchema', () => {
     });
     expect(Array.isArray(r.data?.result)).toBe(true);
   });
+
+  it('accepts a null `msg` on a success response (the cloud sends msg:null)', () => {
+    // Live mower action responses come back as `{code:0, success:true, msg:null,
+    // data:{result:{...}}}` — `msg` MUST be nullable or zod rejects the otherwise
+    // successful reply (regression: a non-nullable msg broke every action call).
+    const r = SendCommandResponseSchema.parse({
+      code: 0,
+      success: true,
+      msg: null,
+      data: { result: { aiid: 50, siid: 2, code: 0, out: [{ d: { value: [1, 2, 3] } }] } },
+    });
+    expect(r.code).toBe(0);
+  });
 });
 
 describe('CachedPropsResponseSchema', () => {

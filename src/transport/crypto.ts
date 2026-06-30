@@ -37,9 +37,26 @@ export function randomMqttClientId(): string {
 }
 
 /**
- * Random positive 31-bit integer for the `id` field of a sendCommand
- * envelope. Wide enough that concurrent fan-out won't collide.
+ * Upper bound for the sendCommand `id`. The Dreame cloud's device-side
+ * correlation id is a NARROW integer field: verified live on
+ * `dreame.mower.p2255` that ids up to 2^24 (16_777_216) round-trip fine but ids
+ * ≳ 1e8 make the cloud return code 80001 "device offline / 指令发送超时" (the
+ * oversized id never reaches/echoes from the device, so the cloud reports it
+ * unreachable). A 31-bit random id therefore broke EVERY mower command. Keep ids
+ * comfortably under that ceiling.
+ */
+const MAX_REQUEST_ID = 0xffffff;
+
+/** Monotonic counter, seeded with a small random base (mirrors the Dreame app's
+ *  `random(1,100)` start). Module-scoped so concurrent fan-out never collides. */
+let nextRequestId = Math.floor(Math.random() * 100) + 1;
+
+/**
+ * Next `id` for a sendCommand envelope — a small, monotonically increasing
+ * integer that wraps under {@link MAX_REQUEST_ID}. MUST stay small: see
+ * {@link MAX_REQUEST_ID} for why a large id makes the cloud 80001.
  */
 export function randomRequestId(): number {
-  return Math.floor(Math.random() * 0x7fffffff) + 1;
+  nextRequestId = nextRequestId >= MAX_REQUEST_ID ? 1 : nextRequestId + 1;
+  return nextRequestId;
 }

@@ -57,12 +57,26 @@ describe('randomMqttClientId', () => {
 });
 
 describe('randomRequestId', () => {
-  it('returns a positive 31-bit-safe integer', () => {
-    for (let i = 0; i < 50; i += 1) {
+  // The Dreame cloud's device-side correlation id is a NARROW integer field:
+  // verified live on dreame.mower.p2255 that ids ≳ 1e8 make sendCommand return
+  // code 80001 "device offline" (the oversized id never round-trips), while ids
+  // up to 2^24 work. A 31-bit random id therefore broke EVERY mower command, so
+  // the id MUST stay small and is a monotonic counter wrapping under 0xffffff.
+  const MAX = 0xffffff;
+
+  it('returns small, monotonically increasing ids capped under the cloud ceiling', () => {
+    let prev = randomRequestId();
+    expect(Number.isInteger(prev)).toBe(true);
+    expect(prev).toBeGreaterThanOrEqual(1);
+    expect(prev).toBeLessThanOrEqual(MAX);
+    for (let i = 0; i < 500; i += 1) {
       const id = randomRequestId();
       expect(Number.isInteger(id)).toBe(true);
       expect(id).toBeGreaterThanOrEqual(1);
-      expect(id).toBeLessThanOrEqual(0x7fffffff);
+      expect(id).toBeLessThanOrEqual(MAX);
+      // strictly increments, except a single wrap back to 1 at the ceiling
+      expect(id === prev + 1 || id === 1).toBe(true);
+      prev = id;
     }
   });
 });

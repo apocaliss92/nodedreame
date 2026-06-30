@@ -15,7 +15,7 @@ export const OAuthTokenResponseSchema = z
     error: z.string().optional(),
     error_description: z.string().optional(),
     code: z.number().optional(),
-    msg: z.string().optional(),
+    msg: z.string().nullish(),
   })
   .passthrough();
 export type OAuthTokenResponse = z.infer<typeof OAuthTokenResponseSchema>;
@@ -39,7 +39,7 @@ export type RawDevice = z.infer<typeof RawDeviceSchema>;
 export const DeviceListResponseSchema = z
   .object({
     code: z.number().optional(),
-    msg: z.string().optional(),
+    msg: z.string().nullish(),
     data: z
       .object({
         page: z
@@ -94,7 +94,7 @@ export type CachedPropEntry = z.infer<typeof CachedPropEntrySchema>;
 export const CachedPropsResponseSchema = z
   .object({
     code: z.number().optional(),
-    msg: z.string().optional(),
+    msg: z.string().nullish(),
     data: z.array(CachedPropEntrySchema).optional(),
   })
   .passthrough();
@@ -103,7 +103,7 @@ export type CachedPropsResponse = z.infer<typeof CachedPropsResponseSchema>;
 export const SendCommandResponseSchema = z
   .object({
     code: z.number().optional(),
-    msg: z.string().optional(),
+    msg: z.string().nullish(),
     data: z.object({ result: z.unknown().optional() }).passthrough().optional(),
     result: z.unknown().optional(),
   })
