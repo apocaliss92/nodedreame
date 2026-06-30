@@ -48,9 +48,7 @@ describe('renderVacuumPng', () => {
     const map = syntheticMap();
     // Isolate layer painting — the fixture parks robot+charger at world (0,0),
     // which the renderer now draws on top; disable the markers for this check.
-    const decoded = PNG.sync.read(
-      renderVacuumPng(map, { showRobot: false, showCharger: false }),
-    );
+    const decoded = PNG.sync.read(renderVacuumPng(map, { showRobot: false, showCharger: false }));
     // Top-left pixel (0,0) is a wall → opaque (alpha 255).
     const tl = (0 * decoded.width + 0) * 4;
     expect(decoded.data[tl + 3]).toBe(255);
@@ -162,7 +160,15 @@ describe('renderVacuumPng overlays', () => {
 
   it('draws the cleaning path polyline, gated on showPath', () => {
     const map = baseMap({
-      paths: [{ type: 'sweep', points: [{ x: 2, y: 10 }, { x: 17, y: 10 }] }],
+      paths: [
+        {
+          type: 'sweep',
+          points: [
+            { x: 2, y: 10 },
+            { x: 17, y: 10 },
+          ],
+        },
+      ],
     });
     // A midpoint of the horizontal path is painted.
     expect(rgbAt(renderVacuumPng(map), 9, 10)[3]).toBeGreaterThan(0);

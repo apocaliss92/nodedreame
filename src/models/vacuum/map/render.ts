@@ -18,14 +18,7 @@
  */
 
 import { PNG } from 'pngjs';
-import type {
-  VacuumMap,
-  MapLayer,
-  MapRun,
-  MapPoint,
-  MapPose,
-  MapDimensions,
-} from './types.js';
+import type { VacuumMap, MapLayer, MapRun, MapPoint, MapPose, MapDimensions } from './types.js';
 
 /** A named map palette. Mirrors the HA integration's `color_scheme` choices. */
 export type MapColorScheme = 'dreame-light' | 'dreame-dark' | 'mijia-light' | 'tasshack';
@@ -427,7 +420,13 @@ function drawDisk(png: PNG, cx: number, cy: number, r: number, color: Rgba): voi
 
 // ── Markers ─────────────────────────────────────────────────────────────────
 
-function drawRobot(png: PNG, robot: MapPose, dim: MapDimensions, scale: number, pal: Palette): void {
+function drawRobot(
+  png: PNG,
+  robot: MapPose,
+  dim: MapDimensions,
+  scale: number,
+  pal: Palette,
+): void {
   const p = worldToPx(robot.x, robot.y, dim, scale);
   const r = Math.max(3, scale * 3);
   drawDisk(png, p.x, p.y, r, pal.robotBody);
@@ -438,7 +437,13 @@ function drawRobot(png: PNG, robot: MapPose, dim: MapDimensions, scale: number, 
   drawLine(png, p.x, p.y, hx, hy, pal.robotHeading, Math.max(1, Math.trunc(scale / 2) + 1));
 }
 
-function drawCharger(png: PNG, dock: MapPose, dim: MapDimensions, scale: number, pal: Palette): void {
+function drawCharger(
+  png: PNG,
+  dock: MapPose,
+  dim: MapDimensions,
+  scale: number,
+  pal: Palette,
+): void {
   const p = worldToPx(dock.x, dock.y, dim, scale);
   const r = Math.max(2, scale * 2);
   // A small filled square reads as a dock base.

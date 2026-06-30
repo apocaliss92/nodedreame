@@ -123,7 +123,9 @@ export function encodeAiFeatureWrite(
   if (typeof raw === 'number') {
     const bit = AI_FEATURE_BIT[feature];
     if (bit === undefined) {
-      throw new Error(`encodeAiFeatureWrite: feature "${feature}" has no int-bitmask representation`);
+      throw new Error(
+        `encodeAiFeatureWrite: feature "${feature}" has no int-bitmask representation`,
+      );
     }
     return value ? raw | bit : raw & ~bit;
   }

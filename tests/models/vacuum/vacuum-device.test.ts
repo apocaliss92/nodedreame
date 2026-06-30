@@ -230,61 +230,61 @@ describe('VacuumDevice state getters', () => {
   });
 
   it('setAiFeature read-modify-writes AI_DETECTION (siid 4 piid 22) preserving the other bits', async () => {
-    const writes: PropertyWrite[][] = []
+    const writes: PropertyWrite[][] = [];
     const deps: BaseDeviceDeps = {
       createPush: () => fakePush(),
       getProperties: () => Promise.resolve([{ siid: 4, piid: 22, value: 271, code: 0 }]),
       getCachedProperties: () => Promise.resolve([{ siid: 4, piid: 22, value: 271, code: 0 }]),
       setProperties: (_base, w) => {
-        writes.push(w)
-        return Promise.resolve([])
+        writes.push(w);
+        return Promise.resolve([]);
       },
       callAction: () => Promise.resolve({}),
-    }
+    };
     const v = new VacuumDevice({
       device: fakeDevice('dreame.vacuum.r2538z'),
       region: 'eu',
       sessionRef: fakeSession,
       deps,
       fetchInitialValues: false,
-    })
-    await v.start()
-    await v.refreshProperties([{ siid: 4, piid: 22 }])
+    });
+    await v.start();
+    await v.refreshProperties([{ siid: 4, piid: 22 }]);
     // turn pet (bit 16) ON -> 271 | 16 = 287, other bits intact
-    await v.setAiFeature('petDetection', true)
-    expect(writes[0]).toEqual([{ siid: 4, piid: 22, value: 287 }])
-    await v.close()
-  })
+    await v.setAiFeature('petDetection', true);
+    expect(writes[0]).toEqual([{ siid: 4, piid: 22, value: 287 }]);
+    await v.close();
+  });
 
   it('refreshAiDetection seeds AI_DETECTION from the cloud shadow (no robot wake)', async () => {
-    const calls: ('live' | 'cache')[] = []
+    const calls: ('live' | 'cache')[] = [];
     const deps: BaseDeviceDeps = {
       createPush: () => fakePush(),
       getProperties: () => {
-        calls.push('live')
-        return Promise.resolve([] as PropertyResult[])
+        calls.push('live');
+        return Promise.resolve([] as PropertyResult[]);
       },
       getCachedProperties: () => {
-        calls.push('cache')
-        return Promise.resolve([{ siid: 4, piid: 22, value: 271, code: 0 }])
+        calls.push('cache');
+        return Promise.resolve([{ siid: 4, piid: 22, value: 271, code: 0 }]);
       },
       setProperties: () => Promise.resolve([]),
       callAction: () => Promise.resolve({}),
-    }
+    };
     const v = new VacuumDevice({
       device: fakeDevice('dreame.vacuum.r2538z'),
       region: 'eu',
       sessionRef: fakeSession,
       deps,
       fetchInitialValues: false,
-    })
-    await v.start()
-    const raw = await v.refreshAiDetection()
-    expect(calls).toEqual(['cache']) // shadow read only, never the waking path
-    expect(raw).toBe(271)
-    expect(v.aiFeature('obstacleDetection')).toBe(true)
-    await v.close()
-  })
+    });
+    await v.start();
+    const raw = await v.refreshAiDetection();
+    expect(calls).toEqual(['cache']); // shadow read only, never the waking path
+    expect(raw).toBe(271);
+    expect(v.aiFeature('obstacleDetection')).toBe(true);
+    await v.close();
+  });
 
   it('refreshAiDetection returns null when the model lacks AI obstacle detection', async () => {
     const v = new VacuumDevice({
@@ -293,11 +293,11 @@ describe('VacuumDevice state getters', () => {
       sessionRef: fakeSession,
       deps: depsReturning([]),
       fetchInitialValues: false,
-    })
-    await v.start()
-    expect(await v.refreshAiDetection()).toBeNull()
-    await v.close()
-  })
+    });
+    await v.start();
+    expect(await v.refreshAiDetection()).toBeNull();
+    await v.close();
+  });
 
   it('setAiFeature throws when the model lacks AI obstacle detection', async () => {
     const v = new VacuumDevice({
@@ -306,12 +306,12 @@ describe('VacuumDevice state getters', () => {
       sessionRef: fakeSession,
       deps: depsReturning([{ siid: 4, piid: 22, value: 271, code: 0 }]),
       fetchInitialValues: false,
-    })
-    await v.start()
-    await v.refreshProperties([{ siid: 4, piid: 22 }])
-    await expect(v.setAiFeature('petDetection', true)).rejects.toThrow(/AI obstacle detection/)
-    await v.close()
-  })
+    });
+    await v.start();
+    await v.refreshProperties([{ siid: 4, piid: 22 }]);
+    await expect(v.setAiFeature('petDetection', true)).rejects.toThrow(/AI obstacle detection/);
+    await v.close();
+  });
 
   it('supportedConsumables is PRESENCE-driven: only reported life props appear, with reset flags', async () => {
     // Device reports main-brush(9/2), filter(11/1), mop-pad(18/1) — but NOT
@@ -320,61 +320,61 @@ describe('VacuumDevice state getters', () => {
       { siid: 9, piid: 2, value: 80, code: 0 }, // main-brush
       { siid: 11, piid: 1, value: 55, code: 0 }, // filter
       { siid: 18, piid: 1, value: 30, code: 0 }, // mop-pad
-    ]
+    ];
     const v = new VacuumDevice({
       device: fakeDevice('dreame.vacuum.r2538z'),
       region: 'eu',
       sessionRef: fakeSession,
       deps: depsReturning(results),
       fetchInitialValues: false,
-    })
-    await v.start()
+    });
+    await v.start();
     await v.refreshProperties([
       { siid: 9, piid: 2 },
       { siid: 11, piid: 1 },
       { siid: 18, piid: 1 },
-    ])
-    const c = v.supportedConsumables
-    expect(c.map((x) => x.key).sort()).toEqual(['filter', 'main-brush', 'mop-pad'])
+    ]);
+    const c = v.supportedConsumables;
+    expect(c.map((x) => x.key).sort()).toEqual(['filter', 'main-brush', 'mop-pad']);
     expect(c.find((x) => x.key === 'mop-pad')).toEqual({
       key: 'mop-pad',
       label: 'Mop Pad',
       leftPct: 30,
       resettable: true,
-    })
-    expect(v.consumableLeftPct('side-brush')).toBeNull() // not reported -> unsupported
-    await v.close()
-  })
+    });
+    expect(v.consumableLeftPct('side-brush')).toBeNull(); // not reported -> unsupported
+    await v.close();
+  });
 
   it('resetConsumable dispatches the consumable service reset action (aiid 1)', async () => {
     const { v, actions } = (() => {
-      const actions: { siid: number; aiid: number }[] = []
+      const actions: { siid: number; aiid: number }[] = [];
       const deps: BaseDeviceDeps = {
         createPush: () => fakePush(),
         getProperties: () => Promise.resolve([]),
         getCachedProperties: () => Promise.resolve([]),
         setProperties: () => Promise.resolve([]),
         callAction: (_base, a) => {
-          actions.push({ siid: a.siid, aiid: a.aiid })
-          return Promise.resolve({})
+          actions.push({ siid: a.siid, aiid: a.aiid });
+          return Promise.resolve({});
         },
-      }
+      };
       const v = new VacuumDevice({
         device: fakeDevice('dreame.vacuum.r2538z'),
         region: 'eu',
         sessionRef: fakeSession,
         deps,
         fetchInitialValues: false,
-      })
-      return { v, actions }
-    })()
-    await v.start()
-    await v.resetConsumable('main-brush')
-    expect(actions[0]).toEqual({ siid: 9, aiid: 1 })
+      });
+      return { v, actions };
+    })();
+    await v.start();
+    await v.resetConsumable('main-brush');
+    expect(actions[0]).toEqual({ siid: 9, aiid: 1 });
     // dust-bag has a life prop but NO reset action → throws.
-    await expect(v.resetConsumable('dust-bag')).rejects.toThrow(/no reset action/)
-    await v.close()
-  })
+    await expect(v.resetConsumable('dust-bag')).rejects.toThrow(/no reset action/);
+    await v.close();
+  });
 
   it('exposes the supported suction/water enum sets for r2538z', () => {
     const v = new VacuumDevice({

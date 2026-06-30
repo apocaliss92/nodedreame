@@ -171,7 +171,9 @@ export function supportedAutoSwitchKeys(raw: AutoSwitchRaw): readonly AutoSwitch
 }
 
 /** All `{ canonical key → int }` pairs the payload reports (canonical keys only). */
-export function decodeAutoSwitchAll(raw: AutoSwitchRaw): Readonly<Partial<Record<AutoSwitchKey, number>>> {
+export function decodeAutoSwitchAll(
+  raw: AutoSwitchRaw,
+): Readonly<Partial<Record<AutoSwitchKey, number>>> {
   const map = parseAutoSwitchMap(raw);
   if (map === null) return {};
   const out: Partial<Record<AutoSwitchKey, number>> = {};

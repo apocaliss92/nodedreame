@@ -39,18 +39,53 @@ export interface ConsumableSpec {
  * property but no reset action.
  */
 export const VACUUM_CONSUMABLES: readonly ConsumableSpec[] = [
-  { key: 'main-brush', label: 'Main Brush', life: { siid: 9, piid: 2 }, reset: { siid: 9, aiid: 1 } },
-  { key: 'side-brush', label: 'Side Brush', life: { siid: 10, piid: 2 }, reset: { siid: 10, aiid: 1 } },
+  {
+    key: 'main-brush',
+    label: 'Main Brush',
+    life: { siid: 9, piid: 2 },
+    reset: { siid: 9, aiid: 1 },
+  },
+  {
+    key: 'side-brush',
+    label: 'Side Brush',
+    life: { siid: 10, piid: 2 },
+    reset: { siid: 10, aiid: 1 },
+  },
   { key: 'filter', label: 'Filter', life: { siid: 11, piid: 1 }, reset: { siid: 11, aiid: 1 } },
   { key: 'sensor', label: 'Sensor', life: { siid: 16, piid: 1 }, reset: { siid: 16, aiid: 1 } },
-  { key: 'tank-filter', label: 'Tank Filter', life: { siid: 17, piid: 1 }, reset: { siid: 17, aiid: 1 } },
+  {
+    key: 'tank-filter',
+    label: 'Tank Filter',
+    life: { siid: 17, piid: 1 },
+    reset: { siid: 17, aiid: 1 },
+  },
   { key: 'mop-pad', label: 'Mop Pad', life: { siid: 18, piid: 1 }, reset: { siid: 18, aiid: 1 } },
-  { key: 'silver-ion', label: 'Silver-ion', life: { siid: 19, piid: 2 }, reset: { siid: 19, aiid: 1 } },
-  { key: 'detergent', label: 'Detergent', life: { siid: 20, piid: 1 }, reset: { siid: 20, aiid: 1 } },
+  {
+    key: 'silver-ion',
+    label: 'Silver-ion',
+    life: { siid: 19, piid: 2 },
+    reset: { siid: 19, aiid: 1 },
+  },
+  {
+    key: 'detergent',
+    label: 'Detergent',
+    life: { siid: 20, piid: 1 },
+    reset: { siid: 20, aiid: 1 },
+  },
   { key: 'squeegee', label: 'Squeegee', life: { siid: 24, piid: 1 }, reset: { siid: 24, aiid: 1 } },
-  { key: 'deodorizer', label: 'Deodorizer', life: { siid: 29, piid: 2 }, reset: { siid: 29, aiid: 1 } },
+  {
+    key: 'deodorizer',
+    label: 'Deodorizer',
+    life: { siid: 29, piid: 2 },
+    reset: { siid: 29, aiid: 1 },
+  },
   { key: 'wheel', label: 'Wheel', life: { siid: 30, piid: 2 }, reset: { siid: 30, aiid: 1 } },
-  { key: 'scale-inhibitor', label: 'Scale Inhibitor', life: { siid: 31, piid: 2 }, reset: { siid: 31, aiid: 1 } },
+  {
+    key: 'scale-inhibitor',
+    label: 'Scale Inhibitor',
+    life: { siid: 31, piid: 2 },
+    reset: { siid: 31, aiid: 1 },
+  },
   { key: 'dust-bag', label: 'Dust Bag', life: { siid: 27, piid: 17 }, reset: null },
 ] as const;
 
