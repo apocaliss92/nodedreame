@@ -546,8 +546,11 @@ export interface RawSegInf {
   material?: number;
   /** Floor direction code. */
   direction?: number;
-  /** Base64-encoded display name. */
+  /** Base64-encoded user-assigned (custom) name. */
   name?: string;
+  /** Room-category code → localized default name (see `segment-types.ts`). */
   type?: number;
+  /** Ordinal among rooms of the same `type` (suffix for the 2nd+ same-type room). */
+  index?: number;
   [key: string]: unknown;
 }

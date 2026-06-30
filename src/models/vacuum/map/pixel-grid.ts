@@ -9,6 +9,7 @@
  */
 
 import type { MapDimensions, MapLayer, MapRun, MapSegment, MapTail } from './types.js';
+import { resolveSegmentName } from './segment-types.js';
 
 /**
  * Pixel-byte classifications for path B (`fsm: 1`).
@@ -228,7 +229,9 @@ export function collectSegments(
 
     segs.push({
       id,
-      name: meta?.name ? safeBase64ToUtf8(meta.name) : null,
+      // Mirror the donor: a room-type code (≠0) yields a localized default name
+      // (e.g. "Kitchen"), else the user's custom base64 name, else null.
+      name: resolveSegmentName(meta?.type, meta?.index, meta?.name),
       bbox,
       centroid,
       neighbours: meta?.nei_id ?? [],
@@ -238,12 +241,4 @@ export function collectSegments(
     });
   }
   return segs;
-}
-
-function safeBase64ToUtf8(s: string): string | null {
-  try {
-    return Buffer.from(s, 'base64').toString('utf8');
-  } catch {
-    return null;
-  }
 }
