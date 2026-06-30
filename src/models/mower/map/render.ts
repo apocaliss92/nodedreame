@@ -34,11 +34,22 @@ const DEFAULT_PADDING = 50;
 
 const BACKGROUND = '#f5f5f0';
 const MAP_BOUNDARY = '#006400';
-const MOWING_PATH = '#ffa500';
+const MOWING_PATH = '#32cd32';
 const NAV_PATH = '#b4b4b4';
 const OBSTACLE_STROKE = '#ff4d00';
 const OBSTACLE_FILL = '#ff4d0065';
 const TEXT_COLOR = '#000000';
+const ZONE_LABEL_COLOR = '#3c3c3c';
+
+/** Escape the five XML metacharacters so a room name can't break the SVG. */
+function escapeXml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
 
 /** Zone fill/outline palette — soft pastels matching the Dreame app. */
 const ZONE_COLORS: ReadonlyArray<readonly [string, string]> = [
@@ -234,7 +245,6 @@ export function renderMowerSvg(map: MowerMap, opts: RenderMowerSvgOptions = {}):
   }
 
   const bounds = calculateBounds(allPoints);
-  const multiZone = map.zones.length > 1;
 
   // 0. Inter-zone navigation paths — dashed grey, behind everything.
   for (const navPath of map.paths) {
@@ -253,11 +263,8 @@ export function renderMowerSvg(map: MowerMap, opts: RenderMowerSvgOptions = {}):
     }
   }
 
-  // 1. Zone fills (only when more than one zone, matching the donor).
+  // 1. Zone fills — per-zone translucent pastel (always, matching the app).
   map.zones.forEach((zone, i) => {
-    if (!multiZone) {
-      return;
-    }
     const palette = ZONE_COLORS[i % ZONE_COLORS.length];
     const [fill, outline] = palette ?? ZONE_COLORS[0] ?? ['#cccccc', '#888888'];
     const poly = svgPolygon(zone.path, bounds, width, height, padding, fill, outline);
@@ -266,11 +273,9 @@ export function renderMowerSvg(map: MowerMap, opts: RenderMowerSvgOptions = {}):
     }
   });
 
-  // 2. Zone boundary outlines.
+  // 2. Zone boundary outlines (zone-tinted).
   map.zones.forEach((zone, i) => {
-    const outline = multiZone
-      ? (ZONE_COLORS[i % ZONE_COLORS.length]?.[1] ?? MAP_BOUNDARY)
-      : MAP_BOUNDARY;
+    const outline = ZONE_COLORS[i % ZONE_COLORS.length]?.[1] ?? MAP_BOUNDARY;
     const boundary = svgPathFromSegments(
       [zone.path],
       bounds,
@@ -317,6 +322,26 @@ export function renderMowerSvg(map: MowerMap, opts: RenderMowerSvgOptions = {}):
     if (poly) {
       lines.push(poly);
     }
+  }
+
+  // 5. Zone NAME labels at each zone's centroid (escaped; on top of fills).
+  for (const zone of map.zones) {
+    if (zone.name.length === 0 || zone.path.length === 0) {
+      continue;
+    }
+    let sumX = 0;
+    let sumY = 0;
+    for (const p of zone.path) {
+      sumX += p.x;
+      sumY += p.y;
+    }
+    const centroid: MowerPoint = { x: sumX / zone.path.length, y: sumY / zone.path.length };
+    const { px, py } = coordToPixel(centroid, bounds, width, height, padding);
+    lines.push(
+      `<text x="${px}" y="${py}" font-family="Arial, sans-serif" font-size="20" ` +
+        `font-weight="bold" fill="${ZONE_LABEL_COLOR}" text-anchor="middle" ` +
+        `dominant-baseline="middle">${escapeXml(zone.name)}</text>`,
+    );
   }
 
   lines.push('</svg>');
