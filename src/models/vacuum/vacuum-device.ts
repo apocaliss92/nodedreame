@@ -48,11 +48,16 @@ import {
 import { DreameError } from '../../transport/errors.js';
 import {
   decodeVacuumMap,
+  applyVacuumPFrame,
+  MapDecodeError,
   OssFetcher,
   type VacuumMap,
+  type VacuumMapDecodeOptions,
   type OssFetchInput,
   type OssFetcherLike,
 } from './map/index.js';
+import { OutOfOrderFrameError } from './map/merge.js';
+import { looksLikeBase64Zlib, unwrapEnvelope } from './map/envelope.js';
 import { REGION_HOSTS } from '../../auth/config.js';
 
 /** Knobs for the segment/zone/spot helpers. Defaults pull from cached state. */
@@ -623,6 +628,15 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
    */
   async getMap(input: VacuumGetMapInput): Promise<VacuumMap> {
     this.#requireCap(this.#caps.canMap, 'getMap', 'map decoding');
+    const blob = await this.#fetchMapBlob(input);
+    const map = decodeVacuumMap(blob, this.#decodeOpts(input));
+    this.#lastMap = map;
+    this.emit('map', map);
+    return map;
+  }
+
+  /** Fetch the raw OSS blob (still the base64+zlib envelope) for a map frame. */
+  async #fetchMapBlob(input: VacuumGetMapInput): Promise<Buffer> {
     const session = this.currentSession();
     const region = this.region;
     const fetcher = input.fetcher ?? new OssFetcher();
@@ -636,14 +650,91 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
       ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
       ...(input.signal !== undefined ? { signal: input.signal } : {}),
     };
-    const blob = await fetcher.fetchBlob(fetchInput);
-    const map = decodeVacuumMap(blob, {
+    return fetcher.fetchBlob(fetchInput);
+  }
+
+  /** The AES key/iv decode options, threaded from a {@link VacuumGetMapInput}. */
+  #decodeOpts(input: Pick<VacuumGetMapInput, 'key' | 'iv'>): VacuumMapDecodeOptions {
+    return {
       ...(input.key !== undefined ? { key: input.key } : {}),
       ...(input.iv !== undefined ? { iv: input.iv } : {}),
-    });
-    this.#lastMap = map;
-    this.emit('map', map);
-    return map;
+    };
+  }
+
+  /**
+   * The merge base for live P-frame streaming — always an INFLATED frame buffer.
+   * An I-frame (re)seeds it; each P-frame merge replaces it with the merged
+   * inflated buffer (so further P-frames stack). `null` until the first I-frame
+   * (or after an out-of-order / map-id reset).
+   */
+  #mapStreamBase: Buffer | null = null;
+
+  /** Drop the P-frame merge base so the next I-frame re-seeds the stream. */
+  resetMapStream(): void {
+    this.#mapStreamBase = null;
+  }
+
+  /** Inflate an OSS blob to a raw frame buffer (live envelope → zlib; verbatim if already inflated). */
+  #inflateFrame(blob: Buffer, opts: VacuumMapDecodeOptions): Buffer {
+    return looksLikeBase64Zlib(blob) ? unwrapEnvelope(blob.toString('latin1'), opts) : blob;
+  }
+
+  /**
+   * Fetch the latest advertised map frame and fold it into a continuously
+   * updating map. An I-frame (re)seeds the merge base and renders standalone; a
+   * P-frame is merged onto the base via {@link applyVacuumPFrame} so the live
+   * grid stays COMPLETE (a P-frame decoded standalone is only byte-deltas). On an
+   * out-of-order P-frame or a map-id change the base is dropped and `null`
+   * returned — the next I-frame re-seeds. Returns `null` when no frame is
+   * advertised yet, or a P-frame arrives before any I-frame.
+   *
+   * Caches {@link lastMap} and emits `'map'` exactly like {@link getMap}, so a
+   * map-watching consumer (e.g. the camstack map child) gets a fresh complete
+   * frame on every push during a live clean.
+   */
+  async fetchLatestMapStreaming(
+    opts: Omit<VacuumGetMapInput, 'filename'> = {},
+  ): Promise<VacuumMap | null> {
+    this.#requireCap(this.#caps.canMap, 'fetchLatestMapStreaming', 'map decoding');
+    const filename = this.mapFilename;
+    if (filename === null) return null;
+    const input: VacuumGetMapInput = { filename, ...opts };
+    const decodeOpts = this.#decodeOpts(input);
+    const blob = await this.#fetchMapBlob(input);
+    const inflated = this.#inflateFrame(blob, decodeOpts);
+    const frame = decodeVacuumMap(inflated, decodeOpts);
+
+    if (frame.frameType === 'I') {
+      this.#mapStreamBase = inflated;
+      this.#lastMap = frame;
+      this.emit('map', frame);
+      return frame;
+    }
+
+    if (frame.frameType === 'P') {
+      if (this.#mapStreamBase === null) return null; // need an I-frame first
+      try {
+        // Both base and incoming frame are inflated buffers → mergePFrame path.
+        const { buffer, data } = applyVacuumPFrame(this.#mapStreamBase, inflated);
+        this.#mapStreamBase = buffer;
+        this.#lastMap = data;
+        this.emit('map', data);
+        return data;
+      } catch (err) {
+        // Out-of-order or a fresh map (id mismatch / grid change): drop the base
+        // and wait for the next I-frame to re-seed rather than render garbage.
+        if (err instanceof OutOfOrderFrameError || err instanceof MapDecodeError) {
+          this.#mapStreamBase = null;
+          return null;
+        }
+        throw err;
+      }
+    }
+
+    // 'W' (saved-map) or any other type: render standalone, leave the base as-is.
+    this.#lastMap = frame;
+    this.emit('map', frame);
+    return frame;
   }
 
   /** Props worth seeding on start() / polling — exported for the facade. */

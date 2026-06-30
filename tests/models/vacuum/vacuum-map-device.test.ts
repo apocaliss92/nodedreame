@@ -235,6 +235,125 @@ describe('VacuumDevice.fetchLatestMap()', () => {
   });
 });
 
+/** An OssFetcher that returns a different blob on each successive call. */
+class SequenceOssFetcher extends OssFetcher {
+  #blobs: Buffer[];
+  #i = 0;
+  constructor(blobs: Buffer[]) {
+    super();
+    this.#blobs = blobs;
+  }
+  override fetchBlob(): Promise<Buffer> {
+    const blob = this.#blobs[Math.min(this.#i, this.#blobs.length - 1)];
+    this.#i += 1;
+    return Promise.resolve(blob ?? Buffer.alloc(0));
+  }
+}
+
+function iFrame(mapId: number, frameId: number, grid: number[]): Buffer {
+  return buildSyntheticFrame({
+    mapId,
+    frameId,
+    frameType: 'I',
+    robot: { x: 10, y: 10, a: 0 },
+    charger: { x: 0, y: 0, a: 0 },
+    gridSize: 50,
+    width: 4,
+    height: 4,
+    left: 0,
+    top: 0,
+    grid: Buffer.from(grid),
+    tail: { timestamp_ms: 1, tr: 'S100,100', seg_inf: { '5': {} }, sa: [[5]], origin: [0, 0] },
+  }).inflated;
+}
+
+function pFrame(mapId: number, frameId: number, delta: number[]): Buffer {
+  return buildSyntheticFrame({
+    mapId,
+    frameId,
+    frameType: 'P',
+    robot: { x: 20, y: 20, a: 0 },
+    charger: { x: 0, y: 0, a: 0 },
+    gridSize: 50,
+    width: 4,
+    height: 4,
+    left: 0,
+    top: 0,
+    grid: Buffer.from(delta),
+    tail: { timestamp_ms: 2, tr: 'L10,0', origin: [0, 0] },
+  }).inflated;
+}
+
+function vacuumWithMapPath(filename = 'ali_dreame/u/d1/9'): VacuumDevice {
+  return new VacuumDevice({
+    device: fakeDevice(),
+    region: 'eu',
+    sessionRef: fakeSession,
+    deps: depsReturning([{ siid: 6, piid: 3, value: filename, code: 0 }]),
+    fetchInitialValues: false,
+  });
+}
+
+describe('VacuumDevice.fetchLatestMapStreaming()', () => {
+  const I_GRID = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+  const P_DELTA = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+
+  it('seeds on an I-frame then merges a following P-frame into a complete map', async () => {
+    const fetcher = new SequenceOssFetcher([iFrame(5, 0, I_GRID), pFrame(5, 1, P_DELTA)]);
+    const v = vacuumWithMapPath();
+    await v.start();
+    await v.refreshProperties([{ siid: 6, piid: 3 }]);
+
+    const first = await v.fetchLatestMapStreaming({ fetcher });
+    expect(first?.frameType).toBe('I');
+    expect(first?.mapId).toBe(5);
+
+    const second = await v.fetchLatestMapStreaming({ fetcher });
+    expect(second).not.toBeNull();
+    // The merged frame is re-stamped as an I-frame (a complete grid), advanced
+    // to the P-frame's frameId — proof the delta was folded onto the base.
+    expect(second?.frameType).toBe('I');
+    expect(second?.frameId).toBe(1);
+    expect(second?.mapId).toBe(5);
+    expect(v.lastMap).toBe(second);
+    await v.close();
+  });
+
+  it('returns null for a P-frame arriving before any I-frame', async () => {
+    const fetcher = new SequenceOssFetcher([pFrame(5, 1, P_DELTA)]);
+    const v = vacuumWithMapPath();
+    await v.start();
+    await v.refreshProperties([{ siid: 6, piid: 3 }]);
+    expect(await v.fetchLatestMapStreaming({ fetcher })).toBeNull();
+    await v.close();
+  });
+
+  it('drops the base on an out-of-order P-frame and re-seeds on the next I-frame', async () => {
+    // I(frameId 0) → P(frameId 5, out of order) → I(frameId 0) re-seed.
+    const fetcher = new SequenceOssFetcher([
+      iFrame(5, 0, I_GRID),
+      pFrame(5, 5, P_DELTA),
+      iFrame(5, 0, I_GRID),
+    ]);
+    const v = vacuumWithMapPath();
+    await v.start();
+    await v.refreshProperties([{ siid: 6, piid: 3 }]);
+
+    expect((await v.fetchLatestMapStreaming({ fetcher }))?.frameType).toBe('I');
+    expect(await v.fetchLatestMapStreaming({ fetcher })).toBeNull(); // out-of-order → base dropped
+    expect((await v.fetchLatestMapStreaming({ fetcher }))?.frameType).toBe('I'); // re-seeded
+    await v.close();
+  });
+
+  it('returns null without fetching when no map filename is observed', async () => {
+    const fetcher = new SequenceOssFetcher([iFrame(5, 0, I_GRID)]);
+    const v = makeVacuum();
+    await v.start();
+    expect(await v.fetchLatestMapStreaming({ fetcher })).toBeNull();
+    await v.close();
+  });
+});
+
 describe('VacuumDevice.refreshSavedMapFilename()', () => {
   it('seeds mapFilename from the cloud shadow and returns it', async () => {
     const v = new VacuumDevice({
