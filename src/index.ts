@@ -127,7 +127,7 @@ export type { MowerTaskDescriptor, MowerControlState } from './models/mower/deco
 // via VacuumDevice.getMap()/currentSegmentId/lastMap and MowerDevice.getMap()/
 // mapSvg(), all reachable through the already-exported device handles.
 export { renderVacuumPng } from './models/vacuum/map/render.js';
-export type { RenderVacuumPngOptions } from './models/vacuum/map/render.js';
+export type { RenderVacuumPngOptions, MapColorScheme } from './models/vacuum/map/render.js';
 export type {
   VacuumMap,
   MapDimensions,

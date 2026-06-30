@@ -51,7 +51,7 @@ export { MapDecodeError } from './envelope.js';
 
 // ── Raster renderer ───────────────────────────────────────────────────────
 export { renderVacuumPng } from './render.js';
-export type { RenderVacuumPngOptions } from './render.js';
+export type { RenderVacuumPngOptions, MapColorScheme } from './render.js';
 
 // ── Signed OSS blob fetcher ───────────────────────────────────────────────
 export { OssFetcher } from './oss-fetch.js';
