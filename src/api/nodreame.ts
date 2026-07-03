@@ -306,10 +306,13 @@ export class Nodreame extends TypedEmitter<NodreameEvents> {
     if (this.#closed) {
       return;
     }
-    this.#refreshTimer = setTimeout(() => {
-      this.#refreshTimer = null;
-      void this.#runProactiveRefresh();
-    }, Math.max(0, delayMs));
+    this.#refreshTimer = setTimeout(
+      () => {
+        this.#refreshTimer = null;
+        void this.#runProactiveRefresh();
+      },
+      Math.max(0, delayMs),
+    );
   }
 
   /** (Re)arm the proactive-refresh timer against the current session's expiry. */
