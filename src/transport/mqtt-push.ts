@@ -110,6 +110,53 @@ export interface DreamePushInput {
    * pointing at a broker with a properly chained certificate (e.g. a test rig).
    */
   rejectUnauthorized?: boolean;
+  /**
+   * Called when the broker refuses a CONNECT with an auth error — a CONNACK
+   * whose return code is 5 ("Not authorized") or 4 ("Bad username or password")
+   * on MQTT 3.1.1 (135/134 on MQTT 5). This happens when the access token the
+   * push connects with has gone stale server-side. The callback MUST resolve to
+   * a freshly-minted session; the push adopts its token and reconnects with it
+   * instead of hopelessly replaying the stale one. Wired by the facade to
+   * `Nodreame.reauthenticate()`. When omitted, an auth-refused reconnect falls
+   * back to the plain backoff loop (legacy behaviour).
+   */
+  onAuthFailure?: () => Promise<DreameSession>;
+  /**
+   * Maximum number of CONSECUTIVE auth-refused re-authentications before the
+   * push stops re-logging-in and falls back to a plain backoff reconnect. The
+   * counter resets to 0 on the next successful connect. Guards against a tight
+   * re-login loop when the credentials are genuinely bad. Default 3.
+   */
+  maxAuthRetries?: number;
+}
+
+/**
+ * True when `err` (or an error in its `cause` chain) is an MQTT CONNACK
+ * auth-refusal. mqtt.js raises an `ErrorWithReasonCode` carrying a numeric
+ * `code`: MQTT 3.1.1 uses 4 (bad user/pass) / 5 (not authorized); MQTT 5 uses
+ * 134 / 135. We also match the human-readable message as a belt-and-braces
+ * fallback in case the code is not surfaced through a wrapper.
+ */
+export function isAuthRefusedError(err: unknown): boolean {
+  let cur: unknown = err;
+  for (let depth = 0; cur != null && depth < 6; depth += 1) {
+    if (typeof cur !== 'object') {
+      break;
+    }
+    const code = (cur as { code?: unknown }).code;
+    if (code === 4 || code === 5 || code === 134 || code === 135) {
+      return true;
+    }
+    const message = (cur as { message?: unknown }).message;
+    if (
+      typeof message === 'string' &&
+      /not authorized|bad user ?name|bad username or password|bad password/i.test(message)
+    ) {
+      return true;
+    }
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
 /**
@@ -128,11 +175,15 @@ export class DreamePush extends TypedEmitter<DreamePushEvents> {
   readonly #backoffMs: number;
   readonly #keepaliveSeconds: number;
   readonly #rejectUnauthorized: boolean;
-  readonly #topic: string;
+  readonly #onAuthFailure: (() => Promise<DreameSession>) | null;
+  readonly #maxAuthRetries: number;
+  #topic: string;
   #client: MqttLikeClient | null = null;
   #closed = false;
   #tearingDown = false;
   #reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Consecutive auth-refused re-auths since the last successful connect. */
+  #authFailureCount = 0;
 
   /**
    * Per-instance bound close handler. Stored so we can pass the EXACT same
@@ -151,6 +202,8 @@ export class DreamePush extends TypedEmitter<DreamePushEvents> {
     this.#backoffMs = input.reconnectBackoffMs ?? 5000;
     this.#keepaliveSeconds = input.keepaliveSeconds ?? 60;
     this.#rejectUnauthorized = input.rejectUnauthorized ?? false;
+    this.#onAuthFailure = input.onAuthFailure ?? null;
+    this.#maxAuthRetries = input.maxAuthRetries ?? 3;
     this.#topic = buildStatusTopic(this.#device, this.#session.uid, this.#region);
     // Bind once so the reference is stable across register/remove calls.
     this.#onClose = (): void => {
@@ -236,6 +289,9 @@ export class DreamePush extends TypedEmitter<DreamePushEvents> {
               reject(new DreameTransportError(`mqtt subscribe failed: ${err.message}`, err));
               return;
             }
+            // A clean connect+subscribe proves the current token is good again:
+            // reset the auth-failure budget so a LATER staleness can self-heal.
+            this.#authFailureCount = 0;
             this.emit('connect');
             resolve();
           });
@@ -282,11 +338,66 @@ export class DreamePush extends TypedEmitter<DreamePushEvents> {
       if (this.#closed || this.#client) {
         return;
       }
-      void this.#connectAndSubscribe().catch((err: unknown) => {
-        this.emit('error', err instanceof Error ? err : new DreameTransportError(String(err)));
-        this.#scheduleReconnect();
-      });
+      void this.#attemptReconnect();
     }, this.#backoffMs);
+  }
+
+  /**
+   * One reconnect attempt with reactive auth self-heal. If the broker refuses
+   * the CONNECT with an auth error (a stale access token) and an
+   * `onAuthFailure` provider is wired and the re-auth budget is not exhausted,
+   * mint a fresh session and retry with the new token instead of replaying the
+   * old one. Any other failure (or an exhausted budget) falls back to the plain
+   * backoff reconnect so bad credentials cannot hot-loop re-login.
+   */
+  async #attemptReconnect(): Promise<void> {
+    try {
+      await this.#connectAndSubscribe();
+    } catch (err) {
+      if (this.#closed) {
+        return;
+      }
+      if (
+        this.#onAuthFailure &&
+        isAuthRefusedError(err) &&
+        this.#authFailureCount < this.#maxAuthRetries
+      ) {
+        await this.#reauthenticateAndReconnect();
+        return;
+      }
+      // Non-auth error, or the re-auth cap is exhausted: surface it and fall
+      // back to a plain backoff reconnect (no re-login storm).
+      this.emit('error', err instanceof Error ? err : new DreameTransportError(String(err)));
+      this.#scheduleReconnect();
+    }
+  }
+
+  /** Mint a fresh session via `onAuthFailure`, adopt its token, and reconnect. */
+  async #reauthenticateAndReconnect(): Promise<void> {
+    this.#authFailureCount += 1;
+    let session: DreameSession;
+    try {
+      session = await this.#onAuthFailure!();
+    } catch (err) {
+      // Re-authentication itself failed: surface it and retry on a backoff.
+      this.emit('error', err instanceof Error ? err : new DreameTransportError(String(err)));
+      this.#scheduleReconnect();
+      return;
+    }
+    if (this.#closed) {
+      return;
+    }
+    // Adopt the fresh token + rebuild the topic (uid could differ). NOTE:
+    // `onAuthFailure` typically propagates the new session back through
+    // `refreshSession()`, which ALREADY tears down and reconnects this push —
+    // in that case `#client` is live and we must NOT open a second connection.
+    this.#session = session;
+    this.#topic = buildStatusTopic(this.#device, this.#session.uid, this.#region);
+    if (this.#client) {
+      return;
+    }
+    // No propagated reconnect happened — reconnect ourselves on the new token.
+    void this.#attemptReconnect();
   }
 
   async #teardownClient(): Promise<void> {

@@ -4,10 +4,12 @@ import {
   DreamePush,
   brokerUrl,
   buildStatusTopic,
+  isAuthRefusedError,
   parsePropertyChanges,
   parseEventOccured,
   parseMapInfo,
 } from '../../src/transport/mqtt-push.js';
+import { DreameTransportError } from '../../src/transport/errors.js';
 import type { DreameDevice, DreameSession } from '../../src/cloud/types.js';
 
 const device: DreameDevice = {
@@ -115,6 +117,35 @@ describe('pure helpers', () => {
     const mi = parseMapInfo('DID', { map_info: JSON.stringify({ '1': [5, 10], '2': [0] }) });
     expect(mi?.savedMapIds).toEqual([1, 2]);
     expect(mi?.activeMapId).toBe(1);
+  });
+});
+
+describe('isAuthRefusedError (CONNACK auth-refusal detector)', () => {
+  it('detects MQTT 3.1.1 / MQTT 5 auth reason codes and message text', () => {
+    // MQTT 3.1.1 CONNACK codes (protocolVersion 4): 4 bad creds, 5 not authorized.
+    expect(isAuthRefusedError(Object.assign(new Error('x'), { code: 5 }))).toBe(true);
+    expect(isAuthRefusedError(Object.assign(new Error('x'), { code: 4 }))).toBe(true);
+    // MQTT 5 CONNACK reason codes: 134 bad user/pass, 135 not authorized.
+    expect(isAuthRefusedError(Object.assign(new Error('x'), { code: 135 }))).toBe(true);
+    // Wrapped by DreameTransportError (cause chain).
+    const wrapped = new DreameTransportError(
+      'mqtt connect failed: Connection refused: Not authorized',
+      Object.assign(new Error('Connection refused: Not authorized'), { code: 5 }),
+    );
+    expect(isAuthRefusedError(wrapped)).toBe(true);
+    // Message-only detection (no numeric code).
+    expect(isAuthRefusedError(new Error('Connection refused: Bad username or password'))).toBe(
+      true,
+    );
+  });
+
+  it('does NOT flag non-auth errors', () => {
+    expect(isAuthRefusedError(new Error('ECONNRESET'))).toBe(false);
+    expect(isAuthRefusedError(Object.assign(new Error('server unavailable'), { code: 3 }))).toBe(
+      false,
+    );
+    expect(isAuthRefusedError(null)).toBe(false);
+    expect(isAuthRefusedError(undefined)).toBe(false);
   });
 });
 
@@ -264,6 +295,147 @@ describe('DreamePush — durable reconnect', () => {
     created[0]!.drop();
     await new Promise((r) => setTimeout(r, 5));
     expect(created).toHaveLength(1);
+  });
+});
+
+// --- Auth-refused reconnect fake (reactive self-heal) ------------------
+class AuthAwareClient extends EventEmitter {
+  subscribed: string[] = [];
+  ended = false;
+  dropped = false;
+  constructor(
+    public url: string,
+    public opts: FakeOpts,
+  ) {
+    super();
+  }
+  get isLive(): boolean {
+    return !this.ended && !this.dropped;
+  }
+  override removeListener(event: string, cb: (...args: never[]) => void): this {
+    super.removeListener(event, cb as (...args: unknown[]) => void);
+    return this;
+  }
+  subscribe(topic: string, _opts: unknown, cb: (err?: Error) => void): void {
+    this.subscribed.push(topic);
+    cb();
+  }
+  end(_force: boolean, _opts: unknown, cb: () => void): void {
+    this.ended = true;
+    cb();
+  }
+  goConnected(): void {
+    this.emit('connect');
+  }
+  drop(): void {
+    this.dropped = true;
+    this.emit('close');
+  }
+  /** Simulate a CONNACK with return code 5 ("Not authorized"). */
+  failAuth(): void {
+    const e = new Error('Connection refused: Not authorized') as Error & { code: number };
+    e.code = 5;
+    this.emit('error', e);
+  }
+}
+
+/**
+ * A fake broker that accepts exactly ONE token: a CONNECT whose password matches
+ * `broker.validToken` connects; otherwise the broker answers CONNACK rc=5. This
+ * models an access token going stale server-side (rotate `broker.validToken`).
+ */
+function makeAuthFactory(initialValidToken: string) {
+  const created: AuthAwareClient[] = [];
+  const broker = { validToken: initialValidToken };
+  const connect = (url: string, opts: FakeOpts): AuthAwareClient => {
+    const c = new AuthAwareClient(url, opts);
+    created.push(c);
+    queueMicrotask(() => {
+      if (opts.password === broker.validToken) {
+        c.goConnected();
+      } else {
+        c.failAuth();
+      }
+    });
+    return c;
+  };
+  return { connect, created, broker };
+}
+
+describe('DreamePush — reactive auth self-heal (FIX B)', () => {
+  it('re-authenticates on a CONNACK auth-refusal and reconnects with the NEW token', async () => {
+    const { connect, created, broker } = makeAuthFactory('T1');
+    const onAuthFailure = vi.fn(async () => session('T2'));
+    const push = new DreamePush({
+      device,
+      session: session('T1'),
+      region: 'eu',
+      connect,
+      reconnectBackoffMs: 0,
+      onAuthFailure,
+    });
+    push.on('error', vi.fn()); // swallow the surfaced transport errors
+    await push.open();
+    expect(created).toHaveLength(1);
+    expect(created[0]!.opts.password).toBe('T1');
+
+    // The access token rotates server-side and the live connection drops.
+    broker.validToken = 'T2';
+    created[0]!.drop();
+
+    // The stale-token reconnect is refused → onAuthFailure() mints a new session →
+    // the push reconnects with the NEW token (never loops on the old one).
+    await vi.waitFor(() => expect(onAuthFailure).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => {
+      const live = created.filter((c) => c.isLive);
+      expect(live).toHaveLength(1);
+      expect(live[0]!.opts.password).toBe('T2');
+    });
+    await push.close();
+  });
+
+  it('caps consecutive auth re-auths so bad credentials do not hot-loop re-login', async () => {
+    vi.useFakeTimers();
+    try {
+      const { connect, created, broker } = makeAuthFactory('T1');
+      // onAuthFailure keeps returning a token the broker also rejects — the
+      // "genuinely bad credentials" case. The re-auth must be capped.
+      const onAuthFailure = vi.fn(async () => session('STILL-STALE'));
+      const errors: Error[] = [];
+      const push = new DreamePush({
+        device,
+        session: session('T1'),
+        region: 'eu',
+        connect,
+        reconnectBackoffMs: 1000,
+        maxAuthRetries: 3,
+        onAuthFailure,
+      });
+      push.on('error', (e) => errors.push(e));
+
+      const openP = push.open();
+      await vi.advanceTimersByTimeAsync(0); // flush the queued goConnected
+      await openP;
+
+      // Rotate so the current token (and onAuthFailure's token) are now rejected.
+      broker.validToken = 'ROTATED';
+      created[0]!.drop(); // arm the reconnect (backoff 1000)
+
+      // One backoff elapse drives the full strike burst: each failed connect →
+      // onAuthFailure → immediate (no-backoff) re-attempt → fail → … until the cap.
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(onAuthFailure).toHaveBeenCalledTimes(3);
+
+      // Past the cap it must NOT keep re-logging-in; further reconnects use the
+      // plain backoff path only (no more onAuthFailure calls).
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(onAuthFailure).toHaveBeenCalledTimes(3);
+      expect(errors.length).toBeGreaterThan(0);
+
+      await push.close();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

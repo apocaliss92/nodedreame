@@ -380,6 +380,142 @@ describe('Nodreame.ensureSession — refresh-failure fallback (FIX 3)', () => {
   });
 });
 
+describe('Nodreame — proactive background refresh timer (self-heal FIX A)', () => {
+  // A createDevice factory that records every token pushed to its push.refreshSession.
+  function recordingCreateDevice(pushed: string[][]) {
+    return (args: { sessionRef: () => DreameSession }) => {
+      const calls: string[] = [];
+      pushed.push(calls);
+      const baseDeps = {
+        createPush: () => ({
+          on() {
+            return this;
+          },
+          async open() {},
+          async close() {},
+          async refreshSession(s: DreameSession) {
+            calls.push(s.accessToken);
+          },
+        }),
+        getProperties: vi.fn(async () => []),
+        getCachedProperties: vi.fn(async () => []),
+        setProperties: vi.fn(async () => []),
+        callAction: vi.fn(async () => null),
+      };
+      return new BaseDevice({
+        device: dev('X'),
+        region: 'eu',
+        sessionRef: args.sessionRef,
+        fetchInitialValues: false,
+        deps: baseDeps,
+      });
+    };
+  }
+
+  it('refreshes the session BEFORE expiry with no manual ensureSession, then reschedules', async () => {
+    vi.useFakeTimers();
+    try {
+      const pushed: string[][] = [];
+      // The refreshed session carries a refresh token so the NEXT cycle refreshes
+      // again (rather than falling back to a full re-login).
+      const refresh = vi.fn(async () => ({
+        accessToken: 'REFRESHED',
+        refreshToken: 'RT',
+        uid: 'UID',
+        expiresAt: Date.now() + 200_000,
+        region: 'eu' as const,
+      }));
+      const login = vi.fn(async () => ({
+        accessToken: 'OLD',
+        refreshToken: 'RT',
+        uid: 'UID',
+        expiresAt: Date.now() + 200_000,
+        region: 'eu' as const,
+      }));
+      const deps = makeDeps({ login, refresh, createDevice: recordingCreateDevice(pushed) });
+      const n = new Nodreame({ username: 'a@b.c', password: 'pw', region: 'eu' }, deps);
+      await n.login();
+      await n.discoverDevices();
+
+      // Cross the leeway boundary (expiry −100s ⇒ +100s) WITHOUT any manual call.
+      await vi.advanceTimersByTimeAsync(101_000);
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(pushed).toHaveLength(2);
+      for (const calls of pushed) {
+        expect(calls).toContain('REFRESHED');
+      }
+
+      // It rescheduled against the NEW expiry — a second boundary triggers refresh #2.
+      refresh.mockImplementation(async () => ({
+        accessToken: 'REFRESHED2',
+        refreshToken: 'RT',
+        uid: 'UID',
+        expiresAt: Date.now() + 200_000,
+        region: 'eu' as const,
+      }));
+      await vi.advanceTimersByTimeAsync(101_000);
+      expect(refresh).toHaveBeenCalledTimes(2);
+      for (const calls of pushed) {
+        expect(calls).toContain('REFRESHED2');
+      }
+
+      await n.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('close() clears the proactive timer — no refresh fires afterwards', async () => {
+    vi.useFakeTimers();
+    try {
+      const refresh = vi.fn(async () => sessionAt('REFRESHED', Date.now() + 200_000));
+      const login = vi.fn(async () => ({
+        accessToken: 'OLD',
+        refreshToken: 'RT',
+        uid: 'UID',
+        expiresAt: Date.now() + 200_000,
+        region: 'eu' as const,
+      }));
+      const deps = makeDeps({ login, refresh });
+      const n = new Nodreame({ username: 'a@b.c', password: 'pw', region: 'eu' }, deps);
+      await n.login();
+      await n.discoverDevices();
+      await n.close();
+
+      await vi.advanceTimersByTimeAsync(1_000_000);
+      expect(refresh).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reauthenticate() force-refreshes regardless of expiry and propagates to devices', async () => {
+    const pushed: string[][] = [];
+    const refresh = vi.fn(async () => sessionAt('FORCED', Date.now() + 1e6));
+    // A session that is nowhere near expiry: ensureSession would NOT refresh it,
+    // but reauthenticate() must force a fresh token anyway.
+    const login = vi.fn(async () => ({
+      accessToken: 'VALID',
+      refreshToken: 'RT',
+      uid: 'UID',
+      expiresAt: Date.now() + 1e6,
+      region: 'eu' as const,
+    }));
+    const deps = makeDeps({ login, refresh, createDevice: recordingCreateDevice(pushed) });
+    const n = new Nodreame({ username: 'a@b.c', password: 'pw', region: 'eu' }, deps);
+    await n.login();
+    await n.discoverDevices();
+
+    const s = await n.reauthenticate();
+    expect(s.accessToken).toBe('FORCED');
+    expect(refresh).toHaveBeenCalledTimes(1);
+    for (const calls of pushed) {
+      expect(calls).toContain('FORCED');
+    }
+    await n.close();
+  });
+});
+
 describe('deviceClassFor (device-type factory)', () => {
   it('maps dreame.vacuum.* -> VacuumDevice, dreame.mower.* -> MowerDevice, else BaseDevice', () => {
     expect(deviceClassFor('dreame.vacuum.r2538z')).toBe(VacuumDevice);

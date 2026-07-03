@@ -23,6 +23,11 @@ export class TypedEmitter<Events extends Record<string, unknown[]>> {
     return this.#emitter.emit(event, ...args);
   }
 
+  /** Number of listeners registered for `event`. */
+  listenerCount<K extends keyof Events & string>(event: K): number {
+    return this.#emitter.listenerCount(event);
+  }
+
   removeAllListeners(): this {
     this.#emitter.removeAllListeners();
     return this;

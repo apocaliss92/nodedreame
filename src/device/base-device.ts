@@ -45,7 +45,12 @@ export interface PushLike {
 
 /** Injectable collaborators — defaults wire the real transport + command layer. */
 export interface BaseDeviceDeps {
-  createPush(device: DreameDevice, session: DreameSession, region: DreameRegion): PushLike;
+  createPush(
+    device: DreameDevice,
+    session: DreameSession,
+    region: DreameRegion,
+    onAuthFailure?: () => Promise<DreameSession>,
+  ): PushLike;
   getProperties(base: CommonInput, props: MiotProp[]): Promise<PropertyResult[]>;
   /** Read the cloud-cached (shadow) values WITHOUT waking the device. */
   getCachedProperties(base: CommonInput, props: MiotProp[]): Promise<PropertyResult[]>;
@@ -59,7 +64,13 @@ export interface BaseDeviceDeps {
 /** Default deps using the real `DreamePush` and `src/cloud/commands.ts`. */
 export function defaultBaseDeviceDeps(): BaseDeviceDeps {
   return {
-    createPush: (device, session, region) => new DreamePush({ device, session, region }),
+    createPush: (device, session, region, onAuthFailure) =>
+      new DreamePush({
+        device,
+        session,
+        region,
+        ...(onAuthFailure !== undefined ? { onAuthFailure } : {}),
+      }),
     getProperties: (base, props) => defaultGetProperties(base, props),
     getCachedProperties: (base, props) => defaultGetCachedProperties(base, props),
     setProperties: (base, writes) => defaultSetProperties(base, writes),
@@ -79,6 +90,12 @@ export interface BaseDeviceInput {
   region: DreameRegion;
   /** Always reads the LATEST session — the facade owns the variable. */
   sessionRef: () => DreameSession;
+  /**
+   * Force-refresh callback handed to the underlying push so it can self-heal a
+   * broker CONNACK auth-refusal (stale token) by minting a fresh session.
+   * Wired by the facade to `Nodreame.reauthenticate()`.
+   */
+  onAuthFailure?: () => Promise<DreameSession>;
   deps?: BaseDeviceDeps;
   /** Eager-seed the cache on `start()`. Default true. */
   fetchInitialValues?: boolean;
@@ -107,6 +124,7 @@ export class BaseDevice<
   readonly #device: DreameDevice;
   readonly #region: DreameRegion;
   readonly #sessionRef: () => DreameSession;
+  readonly #onAuthFailure: (() => Promise<DreameSession>) | undefined;
   readonly #deps: BaseDeviceDeps;
   readonly #fetchInitial: boolean;
   readonly #initialProps: MiotProp[];
@@ -123,6 +141,7 @@ export class BaseDevice<
     this.#device = input.device;
     this.#region = input.region;
     this.#sessionRef = input.sessionRef;
+    this.#onAuthFailure = input.onAuthFailure;
     this.#deps = input.deps ?? defaultBaseDeviceDeps();
     this.#fetchInitial = input.fetchInitialValues ?? true;
     this.#initialProps = input.initialProps ?? [];
@@ -173,7 +192,12 @@ export class BaseDevice<
 
   /** Open the push, wire events, optionally seed the cache. */
   async start(): Promise<void> {
-    const push = this.#deps.createPush(this.#device, this.#sessionRef(), this.#region);
+    const push = this.#deps.createPush(
+      this.#device,
+      this.#sessionRef(),
+      this.#region,
+      this.#onAuthFailure,
+    );
     this.#push = push;
     push.on('properties', (changes) => this.#onProperties(changes));
     push.on('event', (ev) =>

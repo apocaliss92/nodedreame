@@ -30,6 +30,7 @@ export type {
 
 // --- Phase 2: high-level facade + generic device handle ------------------
 export { Nodreame } from './api/nodreame.js';
+export { isAuthRefusedError } from './transport/mqtt-push.js';
 export type { NodreameDeps, CreateDeviceArgs, NodreameEvents } from './api/nodreame.js';
 export { BaseDevice } from './device/base-device.js';
 export type { BaseDeviceEvents } from './device/base-device.js';
