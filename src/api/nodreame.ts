@@ -202,18 +202,25 @@ export class Nodreame extends TypedEmitter<NodreameEvents> {
 
   async #doRefresh(current: DreameSession): Promise<DreameSession> {
     if (current.refreshToken) {
+      // Narrow scope: the full-re-login fallback must cover ONLY a failed
+      // refresh-token GRANT — never the subsequent propagation. If we let the
+      // catch swallow a propagation failure it would trigger a spurious full
+      // re-login (and, in the fleet, tear down healthy siblings).
+      let next: DreameSession | null = null;
       try {
-        const next = await this.#deps.refresh({
+        next = await this.#deps.refresh({
           refreshToken: current.refreshToken,
           region: this.#opts.region,
           ...(this.#opts.country !== undefined ? { country: this.#opts.country } : {}),
           ...(this.#opts.lang !== undefined ? { lang: this.#opts.lang } : {}),
           ...(this.#opts.fetchImpl !== undefined ? { fetchImpl: this.#opts.fetchImpl } : {}),
         });
+      } catch {
+        next = null; // fall through to a full re-login
+      }
+      if (next) {
         await this.#adoptSession(next);
         return next;
-      } catch {
-        // fall through to a full re-login
       }
     }
     const fresh = await this.login();
@@ -243,7 +250,14 @@ export class Nodreame extends TypedEmitter<NodreameEvents> {
     for (const h of handles) {
       h.on('stateChanged', (e) => this.emit('stateChanged', e));
       h.on('event', (e) => this.emit('event', e));
-      h.on('error', (err) => this.emit('error', err));
+      // Guard the forward-emit: reactive re-auth / cap-exhaustion failures now
+      // funnel through here. An unhandled 'error' on the emitter throws, which
+      // would crash a consumer that never attached an 'error' listener.
+      h.on('error', (err) => {
+        if (this.listenerCount('error') > 0) {
+          this.emit('error', err);
+        }
+      });
       await h.start();
     }
     // Close any handles from a previous discovery before adopting the new set —
@@ -345,6 +359,13 @@ export class Nodreame extends TypedEmitter<NodreameEvents> {
     if (this.#closed) {
       return;
     }
-    await Promise.all(this.#devices.map((d) => d.applySession(session)));
+    // allSettled — NOT all: one device's applySession failure must NEVER reject
+    // the whole propagation. A rejected Promise.all here would (1) orphan the
+    // healthy siblings that already reconnected, (2) bubble up into #doRefresh
+    // and trigger a spurious full re-login, and (3) reach the originating push's
+    // reauth catch and tear down its live client. Each device self-heals its own
+    // reconnect (see DreamePush.refreshSession), so per-device failures are
+    // isolated here.
+    await Promise.allSettled(this.#devices.map((d) => d.applySession(session)));
   }
 }

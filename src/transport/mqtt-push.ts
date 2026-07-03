@@ -126,6 +126,13 @@ export interface DreamePushInput {
    * push stops re-logging-in and falls back to a plain backoff reconnect. The
    * counter resets to 0 on the next successful connect. Guards against a tight
    * re-login loop when the credentials are genuinely bad. Default 3.
+   *
+   * NOTE: this cap is PER-PUSH, so a fleet of N devices could in principle make
+   * up to `maxAuthRetries * N` re-auth calls on an account-wide invalidation. In
+   * practice the facade bounds this: `Nodreame.reauthenticate()` coalesces
+   * concurrent refreshes into ONE grant and propagates the fresh token to every
+   * device, so the first device's re-auth heals the whole fleet before the
+   * others exhaust their own budgets.
    */
   maxAuthRetries?: number;
 }
@@ -248,7 +255,18 @@ export class DreamePush extends TypedEmitter<DreamePushEvents> {
       this.#reconnectTimer = null;
     }
     await this.#teardownClient();
-    await this.#connectAndSubscribe();
+    try {
+      await this.#connectAndSubscribe();
+    } catch {
+      // The fresh token failed to connect transiently (broker has not yet
+      // indexed the rotated token, a network blip, etc.). Arm a bounded
+      // reconnect instead of leaving the device dark until the next rotation.
+      // `#connectAndSubscribe` already ended + nulled its client, so this
+      // schedules a clean retry. Resolve rather than reject so a propagation
+      // (allSettled) caller records this device as handled — the reconnect
+      // timer is now driving recovery.
+      this.#scheduleReconnect();
+    }
   }
 
   /** Tear down permanently. Closed subscriptions cannot be reopened. */
@@ -381,7 +399,14 @@ export class DreamePush extends TypedEmitter<DreamePushEvents> {
     } catch (err) {
       // Re-authentication itself failed: surface it and retry on a backoff.
       this.emit('error', err instanceof Error ? err : new DreameTransportError(String(err)));
-      this.#scheduleReconnect();
+      // NEVER orphan a live client: `onAuthFailure` propagates the new session
+      // through `refreshSession()`, which may have ALREADY reconnected this push
+      // before the (later) rejection surfaced. `#scheduleReconnect()` would null
+      // that healthy client without ending it — a leaked socket + a duplicate
+      // connection. Only re-arm when we have no live client to preserve.
+      if (!this.#client) {
+        this.#scheduleReconnect();
+      }
       return;
     }
     if (this.#closed) {
