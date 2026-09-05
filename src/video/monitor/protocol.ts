@@ -106,6 +106,40 @@ export function fillLightParams(value: number): Record<string, unknown> {
   return { value: String(value) };
 }
 
+/** Device-side snapshot (`takephoto`) params. */
+export function takePhotoParams(): Record<string, unknown> {
+  return { operType: 'takephoto', operation: 'start' };
+}
+
+/**
+ * Remote-drive value (siid 4 / piid 15), sent ~1 Hz while a direction is held.
+ * `spdv` = forward speed (200 fwd, 0 stop), `spdw` = turn (45 left, -45 right,
+ * 180 turn-around, 0 straight). Pass an explicit `now` for deterministic tests.
+ */
+export function remoteDriveValue(
+  spdv: number,
+  spdw: number,
+  now: number = Date.now(),
+): string {
+  return JSON.stringify({
+    spdv,
+    spdw,
+    audio: 'false',
+    random: Math.floor(Math.random() * 1000),
+    timestamp: now,
+  });
+}
+
+/** Named remote-drive directions, mapping to (spdv, spdw). */
+export const DRIVE_DIRECTIONS = {
+  forward: [200, 0],
+  left: [0, 45],
+  right: [0, -45],
+  turnAround: [0, 180],
+  stop: [0, 0],
+} as const;
+export type DriveDirection = keyof typeof DRIVE_DIRECTIONS;
+
 /** The device business `code` from an action reply (0 = accepted); `null` if absent. */
 export function actionCode(res: unknown): number | null {
   const r = res as MonitorActionResult | null | undefined;

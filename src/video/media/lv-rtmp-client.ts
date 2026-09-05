@@ -39,7 +39,15 @@ export const LV_STATUS = {
   SERVER_INFO: 'NetStream.ServerInfo',
   TRANSFER_DATA: 'NetStream.TransferData',
   PLAY_START: 'NetStream.Play.Start',
+  /** Server signals the talk (intercom uplink) channel is ready. */
+  TALK_READY: 'NetStream.TalkReady',
 } as const;
+
+/**
+ * FLV audio tag header byte for the intercom uplink: G.711 A-law, 8 kHz, 16-bit,
+ * mono — `(7<<4)|(0<<2)|(1<<1)|0` = 0x72. Verified against liblvmedia SetTalkInfo.
+ */
+export const TALK_AUDIO_HEADER_G711A = 0x72;
 
 /** librtmp constants observed in the app's connect (RTMP_Connect1/SendConnectPacket). */
 const CONNECT_CAPABILITIES = 15;
@@ -54,6 +62,7 @@ const DEFAULT_CACHE_DURATION_MS = 3000; // app: "&cacheDuration=3000"
 const ACK_THRESHOLD_BYTES = 250_000; // librtmp: m_nClientBW(2500000)/10
 const CSID_CONTROL = 2;
 const CSID_COMMAND = 3;
+const CSID_TALK = 4; // intercom uplink audio (liblvmedia IOT_RTMP_SendAudio)
 const CSID_PLAY = 8;
 const PLAY_STREAM_ID = 1; // RTMP_InitPrivateConfig: m_stream_id = 1
 
@@ -252,6 +261,20 @@ export class LvRtmpClient extends EventEmitter<Events> {
     const seq = [this.buildConnect(), this.buildPlay()];
     if (this.opts.requestAudioType) seq.push(this.buildStatus(LV_STATUS.REQUEST_AUDIO_TYPE, ['audio_type', '1']));
     return seq;
+  }
+
+  /**
+   * Push one intercom (talk-back) audio frame UPSTREAM to the device — an RTMP
+   * type-8 audio message on the talk chunk stream (csid 4, msid 1), exactly as
+   * liblvmedia's `IOT_RTMP_SendAudio` does. `payload` is the raw codec audio
+   * (default framing = G.711 A-law); `tsMs` is a running millisecond timestamp.
+   * Only meaningful after the server sends {@link LV_STATUS.TALK_READY}.
+   */
+  sendAudioFrame(payload: Buffer, tsMs: number, header: number = TALK_AUDIO_HEADER_G711A): void {
+    const body = Buffer.concat([Buffer.from([header]), payload]);
+    this.write(
+      encodeMessage({ fmt: 0, csid: CSID_TALK, msid: PLAY_STREAM_ID, timestamp: tsMs >>> 0, type: MSG.AUDIO, body }),
+    );
   }
 
   private write(buf: Buffer): void {

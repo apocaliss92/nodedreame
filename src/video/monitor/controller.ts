@@ -17,7 +17,15 @@
  * the keep-alive loop and release the monitor on the device.
  */
 import { DreameError } from '../../transport/errors.js';
-import { MONITOR_AIID, MONITOR_PIID, MONITOR_SIID } from './constants.js';
+import {
+  MONITOR_AIID,
+  MONITOR_PIID,
+  MONITOR_SIID,
+  VACUUM_SIID,
+  VACUUM_MOVE,
+  VACUUM_CHARGE,
+  VACUUM_LOCATE,
+} from './constants.js';
 import {
   accessCodeLaunchParams,
   actionCode,
@@ -28,14 +36,23 @@ import {
   intercomStopParams,
   keepAliveParams,
   makeMonitorSession,
+  remoteDriveValue,
   startMonitorParams,
   stopMonitorParams,
+  takePhotoParams,
   verifyAccessCodeParams,
+  DRIVE_DIRECTIONS,
+  type DriveDirection,
 } from './protocol.js';
 
-/** Minimal MIoT action caller — satisfied by a nodedreame device handle. */
+/**
+ * MIoT device transport the controller drives — satisfied by a nodedreame device
+ * handle (VacuumDevice). `setProperty` is optional so callAction-only fakes still
+ * satisfy the interface; the robot-drive helpers require it.
+ */
 export interface MonitorActionCaller {
   callAction(siid: number, aiid: number, input: unknown[]): Promise<unknown>;
+  setProperty?(write: { siid: number; piid: number; value: unknown }): Promise<unknown>;
 }
 
 /** Minimal relay minter — satisfied by {@link DreameVideoSession}. */
@@ -67,6 +84,8 @@ export interface DreameCameraControllerInput {
   readonly wakeTimeoutMs?: number;
   /** Reported when a keep-alive tick fails (the stream is likely dying). */
   readonly onKeepAliveError?: (err: unknown) => void;
+  /** Optional line logger (nodelink-style). Defaults to no-op. */
+  readonly log?: (line: string) => void;
 }
 
 /** A live camera stream: the pullable relay URL plus the device's per-stream key. */
@@ -91,6 +110,7 @@ export class DreameCameraController {
   readonly #keepAliveIntervalMs: number;
   readonly #wakeTimeoutMs: number | undefined;
   readonly #onKeepAliveError: ((err: unknown) => void) | undefined;
+  readonly #log: (line: string) => void;
 
   #session: string | null = null;
   #keepAliveTimer: ReturnType<typeof setInterval> | null = null;
@@ -107,6 +127,11 @@ export class DreameCameraController {
     this.#keepAliveIntervalMs = input.keepAliveIntervalMs ?? DEFAULT_KEEP_ALIVE_MS;
     this.#wakeTimeoutMs = input.wakeTimeoutMs;
     this.#onKeepAliveError = input.onKeepAliveError;
+    this.#log = input.log ?? ((): void => {});
+  }
+
+  #logLine(msg: string): void {
+    this.#log(`[nodedreame:monitor] ${msg}`);
   }
 
   /** True while a monitor session is active (between {@link open} and {@link close}). */
@@ -133,6 +158,7 @@ export class DreameCameraController {
       throw new DreameError('camera stream already open');
     }
     this.#session = makeMonitorSession(this.#accountId);
+    this.#logLine(`open: vendor=${this.#vendor} iotId=${this.#iotId} area=${this.#area}`);
 
     // 1) Prime the pipeline + boot the on-device video agent (best-effort:
     // failures here are non-fatal, startMonitor is the real gate).
@@ -141,6 +167,7 @@ export class DreameCameraController {
     // 2) startMonitor — retry once behind the privacy gate if refused.
     const startRes = await this.#startMonitorWithGate();
     const encryptionKey = asString(firstOutValue(startRes));
+    this.#logLine(`startMonitor accepted (encryptionKey=${encryptionKey ? 'yes' : 'no'})`);
 
     // 3) keep the monitor alive from now on (device tears down without it).
     this.#opened = true;
@@ -155,6 +182,7 @@ export class DreameCameraController {
       });
       relayUrl = info.relayUrl;
     } catch (err) {
+      this.#logLine(`relay mint failed: ${err instanceof Error ? err.message : String(err)}`);
       await this.close();
       throw err;
     }
@@ -162,6 +190,7 @@ export class DreameCameraController {
       await this.close();
       throw new DreameError('monitor started but no relay URL was returned');
     }
+    this.#logLine('relay up');
 
     return { rtmpUrl: relayUrl, encryptionKey };
   }
@@ -185,6 +214,7 @@ export class DreameCameraController {
     if (actionCode(res) === 0) {
       return res;
     }
+    this.#logLine(`startMonitor refused (code ${actionCode(res) ?? '?'}); verifying access code`);
     // Refused: the camera's per-session privacy gate needs the PIN verified.
     if (this.#accessCode) {
       await this.#action(
@@ -256,6 +286,101 @@ export class DreameCameraController {
     return this.#action(MONITOR_AIID.PROPERTY_OPERATE, MONITOR_PIID.FILL_LIGHT_SET, fillLightParams(value));
   }
 
+  /**
+   * Device-side snapshot: the robot captures a still and uploads it to cloud
+   * storage (read the result back from the `uploadStatus` property). Prefer a
+   * frame-grab from the live stream for an instant image.
+   */
+  async takePhoto(): Promise<unknown> {
+    return this.#action(MONITOR_AIID.CAMERA_OPERATE, MONITOR_PIID.TAKE_PHOTO, takePhotoParams());
+  }
+
+  /**
+   * Remote-drive the robot ("PTZ" substitute — the camera is fixed, the robot
+   * moves). `spdv` = forward speed, `spdw` = turn; send repeatedly (~1 Hz) while
+   * a direction is held, then `stop`. Only valid while the stream is open.
+   */
+  async drive(spdv: number, spdw: number): Promise<unknown> {
+    this.#requireSession();
+    if (!this.#device.setProperty) {
+      throw new DreameError('device does not support setProperty; cannot remote-drive');
+    }
+    return this.#device.setProperty({
+      siid: VACUUM_SIID,
+      piid: VACUUM_MOVE.REMOTE_STATE_PIID,
+      value: remoteDriveValue(spdv, spdw),
+    });
+  }
+
+  /** Remote-drive by named direction (forward/left/right/turnAround/stop). */
+  async driveDirection(direction: DriveDirection): Promise<unknown> {
+    const [spdv, spdw] = DRIVE_DIRECTIONS[direction];
+    return this.drive(spdv, spdw);
+  }
+
+  /** Start person-follow mode (robot tracks a detected person). */
+  async startPersonFollow(): Promise<unknown> {
+    this.#requireSession();
+    return this.#device.callAction(VACUUM_SIID, VACUUM_MOVE.WORK_AIID, [
+      { piid: VACUUM_MOVE.MODE_PIID, value: VACUUM_MOVE.MODE_PERSON_FOLLOW },
+    ]);
+  }
+
+  /** Stop person-follow mode. */
+  async stopPersonFollow(): Promise<unknown> {
+    this.#requireSession();
+    return this.#device.callAction(VACUUM_SIID, VACUUM_MOVE.STOP_AIID, []);
+  }
+
+  /** Find-pet: cruise the home looking for the pet. */
+  async findPet(): Promise<unknown> {
+    this.#requireSession();
+    return this.#device.callAction(VACUUM_SIID, VACUUM_MOVE.WORK_AIID, [
+      { piid: VACUUM_MOVE.MODE_PIID, value: VACUUM_MOVE.MODE_CRUISE },
+      { piid: VACUUM_MOVE.POINT_PIID, value: JSON.stringify({ findpet: '' }) },
+    ]);
+  }
+
+  /** Send the robot to a map point (`spoint` current, `tpoint` targets). */
+  async goToPoint(spoint: number[][], tpoint: number[][]): Promise<unknown> {
+    this.#requireSession();
+    return this.#device.callAction(VACUUM_SIID, VACUUM_MOVE.WORK_AIID, [
+      { piid: VACUUM_MOVE.MODE_PIID, value: VACUUM_MOVE.MODE_SPOT },
+      { piid: VACUUM_MOVE.POINT_PIID, value: JSON.stringify({ spoint, tpoint }) },
+    ]);
+  }
+
+  /** Toggle the fill light between auto (`full=false`) and full-on (`full=true`). */
+  async setFillLightAuto(full: boolean): Promise<unknown> {
+    if (!this.#device.setProperty) {
+      throw new DreameError('device does not support setProperty; cannot toggle fill light');
+    }
+    return this.#device.setProperty({
+      siid: VACUUM_SIID,
+      piid: VACUUM_MOVE.AUTO_SWITCH_PIID,
+      value: JSON.stringify({ k: 'FillinLight', v: full ? 1 : 0 }),
+    });
+  }
+
+  /**
+   * Send the robot back to its dock to charge ("go home"). Works regardless of
+   * stream state — usable as a standalone command or a PTZ "home" preset.
+   */
+  async returnToDock(): Promise<unknown> {
+    return this.#device.callAction(VACUUM_CHARGE.siid, VACUUM_CHARGE.aiid, []);
+  }
+
+  /** Locate the robot — it beeps. Works regardless of stream state. */
+  async locate(): Promise<unknown> {
+    return this.#device.callAction(VACUUM_LOCATE.siid, VACUUM_LOCATE.aiid, []);
+  }
+
+  #requireSession(): void {
+    if (!this.#opened) {
+      throw new DreameError('camera stream is not open; call open() first');
+    }
+  }
+
   /** Stop the keep-alive loop and release the monitor on the device. Idempotent. */
   async close(): Promise<void> {
     this.#stopKeepAlive();
@@ -264,6 +389,7 @@ export class DreameCameraController {
       return;
     }
     this.#opened = false;
+    this.#logLine('close: stopping monitor');
     try {
       await this.#action(MONITOR_AIID.CAMERA_OPERATE, MONITOR_PIID.MONITOR_STATUS, stopMonitorParams());
     } finally {

@@ -59,3 +59,33 @@ export const MONITOR_VENDOR_TOKEN: Record<'ali' | 'tx', string> = {
 
 /** Fill-light: values 40..100 are manual %, below 40 (or 101) select auto. */
 export const FILL_LIGHT_MIN = 40;
+
+/**
+ * The vacuum work service (SIID 4). The camera has no gimbal — "PTZ" and the
+ * camera-adjacent controls (remote drive, go-to-point, person-follow) drive the
+ * robot itself through this service.
+ */
+export const VACUUM_SIID = 4;
+export const VACUUM_MOVE = {
+  /** Remote-drive state property (set_properties), sent ~1 Hz while held. */
+  REMOTE_STATE_PIID: 15,
+  /** Work-mode action instance (go-to-point, cruise, person-follow start). */
+  WORK_AIID: 1,
+  /** Work-mode stop action instance (person-follow stop). */
+  STOP_AIID: 2,
+  /** piid carrying the work-mode selector value in the WORK action. */
+  MODE_PIID: 1,
+  /** piid carrying the point-info JSON in the WORK action. */
+  POINT_PIID: 10,
+  /** Work-mode selector values. */
+  MODE_SPOT: 23, // go to point
+  MODE_CRUISE: 22, // cruise / patrol / find-pet
+  MODE_PERSON_FOLLOW: 26,
+  /** Auto-switch setter property (fill-light auto/full toggle lives here). */
+  AUTO_SWITCH_PIID: 50,
+} as const;
+
+/** Return-to-dock / charge action (battery service). */
+export const VACUUM_CHARGE = { siid: 3, aiid: 1 } as const;
+/** Locate action — the robot beeps so you can find it. */
+export const VACUUM_LOCATE = { siid: 7, aiid: 1 } as const;

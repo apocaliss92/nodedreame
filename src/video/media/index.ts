@@ -15,11 +15,13 @@ export {
   LvRtmpClient,
   parseRelayUrl,
   LV_STATUS,
+  TALK_AUDIO_HEADER_G711A,
   type LvRtmpClientOptions,
   type VideoAccessUnitEvent,
   type AudioInfoEvent,
   type StatusEvent,
 } from './lv-rtmp-client.js';
+export { pcm16ToALaw, pcm16leToALaw } from './g711.js';
 export {
   avccToAnnexB,
   aacToAdts,

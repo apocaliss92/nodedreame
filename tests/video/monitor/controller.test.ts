@@ -14,8 +14,13 @@ interface Call {
 
 /** Decode a controller action call into (aiid, piid, parsed value). */
 function decode(siid: number, aiid: number, input: unknown[]): Call {
-  const entry = input[0] as { piid: number; value: string };
-  return { siid, aiid, piid: entry.piid, value: JSON.parse(entry.value) as Record<string, unknown> };
+  const entry = input[0] as { piid: number; value: unknown } | undefined;
+  if (!entry) return { siid, aiid, piid: -1, value: {} };
+  const value =
+    typeof entry.value === 'string'
+      ? (JSON.parse(entry.value) as Record<string, unknown>)
+      : ({ raw: entry.value } as Record<string, unknown>);
+  return { siid, aiid, piid: entry.piid, value };
 }
 
 /** A scriptable device + captured calls. `onStart` decides each startMonitor reply. */
@@ -171,6 +176,50 @@ describe('DreameCameraController', () => {
     expect(intercomStart?.value).toMatchObject({ operType: 'intercom', phone: 1 });
     const light = calls.find((c) => c.aiid === 3 && c.piid === 9);
     expect(light?.value['value']).toBe('60');
+  });
+
+  describe('camera-adjacent actions (active-stream gated)', () => {
+    it('takePhoto issues the device-side snapshot action', async () => {
+      const { device, calls } = makeDevice({ startReplies: [{ code: 0, out: [{ value: 'K' }] }] });
+      const ctl = makeController(device);
+      await ctl.open();
+      await ctl.takePhoto();
+      const photo = calls.find((c) => c.aiid === 1 && c.piid === 5);
+      expect(photo?.value).toMatchObject({ operType: 'takephoto', operation: 'start' });
+      await ctl.close();
+    });
+
+    it('drive sets the remote-drive property on siid 4 and rejects when closed', async () => {
+      const { device } = makeDevice({ startReplies: [{ code: 0, out: [{ value: 'K' }] }] });
+      const setProperty = vi.fn(async () => [{ code: 0 }]);
+      (device as unknown as { setProperty: typeof setProperty }).setProperty = setProperty;
+      const ctl = makeController(device);
+
+      await expect(ctl.drive(200, 0)).rejects.toThrow(/not open/);
+      await ctl.open();
+      await ctl.driveDirection('forward');
+      expect(setProperty).toHaveBeenCalledTimes(1);
+      const write = setProperty.mock.calls[0]![0] as { siid: number; piid: number; value: string };
+      expect(write.siid).toBe(4);
+      expect(write.piid).toBe(15);
+      const v = JSON.parse(write.value) as Record<string, unknown>;
+      expect(v).toMatchObject({ spdv: 200, spdw: 0, audio: 'false' });
+      await ctl.close();
+    });
+
+    it('person-follow start/stop hit siid 4 work/stop actions', async () => {
+      const { device, calls } = makeDevice({ startReplies: [{ code: 0, out: [{ value: 'K' }] }] });
+      const ctl = makeController(device);
+      await ctl.open();
+      await ctl.startPersonFollow();
+      await ctl.stopPersonFollow();
+      const start = calls.find((c) => c.siid === 4 && c.aiid === 1);
+      expect(start).toBeDefined();
+      expect(start?.piid).toBe(1);
+      expect(start?.value).toEqual({ raw: 26 }); // piid1 value=26 (raw number, no session merge)
+      expect(calls.some((c) => c.siid === 4 && c.aiid === 2)).toBe(true);
+      await ctl.close();
+    });
   });
 
   describe('keep-alive loop', () => {

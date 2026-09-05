@@ -234,14 +234,24 @@ export {
   MONITOR_AIID,
   MONITOR_PIID,
   MONITOR_VENDOR_TOKEN,
+  VACUUM_SIID,
+  VACUUM_MOVE,
   makeMonitorSession,
   hashAccessCode,
+  parsePersonFollow,
+  parseObstacleData,
+  remoteDriveValue,
+  DRIVE_DIRECTIONS,
 } from './video/index.js';
 export type {
   DreameCameraControllerInput,
   CameraStreamHandle,
   MonitorActionCaller,
   RelayMinter,
+  DetectionBox,
+  PersonFollowDetection,
+  ObstacleDetection,
+  DriveDirection,
 } from './video/index.js';
 
 // --- Camera media pipeline (RTMP relay -> H.264/AAC frames) -----------------
@@ -250,6 +260,9 @@ export {
   LvRtmpClient,
   parseRelayUrl,
   LV_STATUS,
+  TALK_AUDIO_HEADER_G711A,
+  pcm16ToALaw,
+  pcm16leToALaw,
   avccToAnnexB,
   aacToAdts,
   parseAvcConfig,

@@ -769,6 +769,8 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
     wakeTimeoutMs?: number;
     /** Reported when a keep-alive tick fails. */
     onKeepAliveError?: (err: unknown) => void;
+    /** Optional nodelink-style line logger. */
+    log?: (line: string) => void;
     /** Reuse an existing relay minter (e.g. a shared {@link DreameVideoSession}). */
     relay?: RelayMinter;
   }): Promise<DreameCameraController> {
@@ -795,6 +797,7 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
         : {}),
       ...(opts?.wakeTimeoutMs !== undefined ? { wakeTimeoutMs: opts.wakeTimeoutMs } : {}),
       ...(opts?.onKeepAliveError ? { onKeepAliveError: opts.onKeepAliveError } : {}),
+      ...(opts?.log ? { log: opts.log } : {}),
     });
   }
 

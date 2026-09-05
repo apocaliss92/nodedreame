@@ -8,7 +8,16 @@ export {
   MONITOR_PIID,
   MONITOR_VENDOR_TOKEN,
   FILL_LIGHT_MIN,
+  VACUUM_SIID,
+  VACUUM_MOVE,
 } from './constants.js';
+export {
+  parsePersonFollow,
+  parseObstacleData,
+  type DetectionBox,
+  type PersonFollowDetection,
+  type ObstacleDetection,
+} from './detections.js';
 export {
   makeMonitorSession,
   hashAccessCode,
@@ -21,10 +30,14 @@ export {
   intercomStartParams,
   intercomStopParams,
   fillLightParams,
+  takePhotoParams,
+  remoteDriveValue,
+  DRIVE_DIRECTIONS,
   actionCode,
   firstOutValue,
   type MonitorActionInput,
   type MonitorActionResult,
+  type DriveDirection,
 } from './protocol.js';
 export {
   DreameCameraController,

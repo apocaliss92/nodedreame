@@ -34,6 +34,16 @@ export {
   MONITOR_VENDOR_TOKEN,
   makeMonitorSession,
   hashAccessCode,
+  parsePersonFollow,
+  parseObstacleData,
+  remoteDriveValue,
+  DRIVE_DIRECTIONS,
+  VACUUM_SIID,
+  VACUUM_MOVE,
+  type DetectionBox,
+  type PersonFollowDetection,
+  type ObstacleDetection,
+  type DriveDirection,
 } from './monitor/index.js';
 
 // --- Camera media pipeline (RTMP relay -> H.264/AAC frames) -----------------
@@ -46,6 +56,9 @@ export {
   LvRtmpClient,
   parseRelayUrl,
   LV_STATUS,
+  TALK_AUDIO_HEADER_G711A,
+  pcm16ToALaw,
+  pcm16leToALaw,
   type LvRtmpClientOptions,
   type VideoAccessUnitEvent,
   type AudioInfoEvent,
