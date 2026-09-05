@@ -194,3 +194,35 @@ export type {
 export { createDumper, createClientDumper } from './diagnostics/dumper.js';
 export type { DumperOptions } from './diagnostics/dumper.js';
 export type { DeviceDump } from './diagnostics/dump-format.js';
+
+// --- Video control-plane (X40/X50 camera devices) ------------------------
+export {
+  getVideoAccessToken,
+  getAliyunAuthCode,
+  getVideoFamilyId,
+  getDeviceVideoProfile,
+  toVideoProfile,
+} from './video/index.js';
+export type {
+  VideoRequestInput,
+  VideoVendor,
+  VideoAccessToken,
+  DeviceVideoProfile,
+} from './video/index.js';
+
+// --- Aliyun LinkVisual media plane -----------------------------------------
+export {
+  DreameVideoSession,
+  streamQuery,
+  loginByOauth,
+  createIotSession,
+  signApiGatewayRequest,
+  ALIYUN_REGION_ID,
+} from './video/index.js';
+export type {
+  DreameVideoSessionInput,
+  StreamInfo,
+  StreamQueryInput,
+  OaSession,
+  IotSession,
+} from './video/index.js';
