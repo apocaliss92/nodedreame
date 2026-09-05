@@ -222,6 +222,25 @@ export class DreameCameraController {
     }
   }
 
+  /**
+   * Mint a FRESH single-use RTMP relay URL for the already-open monitor. Each
+   * consumer needs its own relay URL, so call this once per ffmpeg/consumer.
+   * Throws if the stream is not open.
+   */
+  async mintRelayUrl(): Promise<string> {
+    if (!this.#opened) {
+      throw new DreameError('camera stream is not open; call open() first');
+    }
+    const info = await this.#relay.getStreamInfo(this.#iotId, {
+      encrypted: false,
+      ...(this.#wakeTimeoutMs !== undefined ? { wakeTimeoutMs: this.#wakeTimeoutMs } : {}),
+    });
+    if (!info.relayUrl) {
+      throw new DreameError('no relay URL available for the open monitor');
+    }
+    return info.relayUrl;
+  }
+
   /** Start the two-way intercom session (control plane only; see module docs on mic uplink). */
   async startIntercom(opts?: { needRecordSound?: boolean; videoCall?: boolean }): Promise<unknown> {
     return this.#action(MONITOR_AIID.VOICE_OPERATE, MONITOR_PIID.MONITOR_AUDIO_STATUS, intercomStartParams(opts));

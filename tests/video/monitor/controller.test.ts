@@ -141,6 +141,21 @@ describe('DreameCameraController', () => {
     expect(stops).toHaveLength(1);
   });
 
+  it('mintRelayUrl mints a fresh relay for an open monitor and rejects when closed', async () => {
+    const { device } = makeDevice({ startReplies: [{ code: 0, out: [{ value: 'K' }] }] });
+    let mints = 0;
+    const relay: RelayMinter = {
+      getStreamInfo: vi.fn(async () => ({ relayUrl: `rtmp://relay/live?n=${++mints}` })),
+    };
+    const ctl = makeController(device, { relay });
+    await expect(ctl.mintRelayUrl()).rejects.toThrow(/not open/);
+    await ctl.open();
+    const u1 = await ctl.mintRelayUrl();
+    const u2 = await ctl.mintRelayUrl();
+    expect(u1).not.toBe(u2); // single-use: a fresh URL each call
+    await ctl.close();
+  });
+
   it('intercom + fill-light emit the reversed action shapes', async () => {
     const { device, calls } = makeDevice({ startReplies: [{ code: 0, out: [{ value: 'K' }] }] });
     const ctl = makeController(device);
