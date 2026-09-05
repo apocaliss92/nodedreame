@@ -46,6 +46,12 @@ import {
   type VacuumCapabilities,
 } from './capabilities.js';
 import { DreameError } from '../../transport/errors.js';
+import { DreameVideoSession } from '../../video/aliyun/session.js';
+import { getDeviceVideoProfile } from '../../video/client.js';
+import {
+  DreameCameraController,
+  type RelayMinter,
+} from '../../video/monitor/controller.js';
 import {
   decodeVacuumMap,
   applyVacuumPFrame,
@@ -735,6 +741,61 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
     this.#lastMap = frame;
     this.emit('map', frame);
     return frame;
+  }
+
+  /**
+   * Build a {@link DreameCameraController} for this device's camera, wired to
+   * both planes it needs: the MIoT action transport (this device handle) and a
+   * fresh Aliyun {@link DreameVideoSession} for the relay. Call
+   * `controller.open()` to autonomously cold-start the stream and get a pullable
+   * RTMP URL, then `controller.close()` to release it.
+   *
+   * The camera's per-session privacy gate means a coded camera needs its PIN:
+   * pass `accessCode` (the code set at pairing). `iotId` is resolved from the
+   * device's cloud video profile when not supplied.
+   */
+  async createCameraController(opts?: {
+    /** LinkVisual channel id; resolved from the cloud profile when omitted. */
+    iotId?: string;
+    /** Privacy PIN set at pairing (required to wake a coded camera). */
+    accessCode?: string;
+    /** Video vendor; defaults to `ali` (the only vendor that mints an RTMP relay). */
+    vendor?: 'ali' | 'tx';
+    /** Aliyun region code reported as `area`; defaults to `'4'`. */
+    area?: string;
+    /** Keep-alive cadence in ms (default 10s). */
+    keepAliveIntervalMs?: number;
+    /** Max time to wait for the relay while the device wakes. */
+    wakeTimeoutMs?: number;
+    /** Reported when a keep-alive tick fails. */
+    onKeepAliveError?: (err: unknown) => void;
+    /** Reuse an existing relay minter (e.g. a shared {@link DreameVideoSession}). */
+    relay?: RelayMinter;
+  }): Promise<DreameCameraController> {
+    const session = this.currentSession();
+    const region = this.region;
+    const relay =
+      opts?.relay ?? new DreameVideoSession({ session, region });
+    const iotId =
+      opts?.iotId ??
+      (await getDeviceVideoProfile({ session, region, did: this.deviceId })).iotId;
+    if (!iotId) {
+      throw new DreameError('device has no LinkVisual iotId; not a camera device or not provisioned');
+    }
+    return new DreameCameraController({
+      device: this,
+      relay,
+      iotId,
+      accountId: session.uid,
+      ...(opts?.vendor ? { vendor: opts.vendor } : {}),
+      ...(opts?.accessCode !== undefined ? { accessCode: opts.accessCode } : {}),
+      ...(opts?.area ? { area: opts.area } : {}),
+      ...(opts?.keepAliveIntervalMs !== undefined
+        ? { keepAliveIntervalMs: opts.keepAliveIntervalMs }
+        : {}),
+      ...(opts?.wakeTimeoutMs !== undefined ? { wakeTimeoutMs: opts.wakeTimeoutMs } : {}),
+      ...(opts?.onKeepAliveError ? { onKeepAliveError: opts.onKeepAliveError } : {}),
+    });
   }
 
   /** Props worth seeding on start() / polling — exported for the facade. */

@@ -226,3 +226,20 @@ export type {
   OaSession,
   IotSession,
 } from './video/index.js';
+
+// --- Camera monitor control-plane + autonomous cold-start ------------------
+export {
+  DreameCameraController,
+  MONITOR_SIID,
+  MONITOR_AIID,
+  MONITOR_PIID,
+  MONITOR_VENDOR_TOKEN,
+  makeMonitorSession,
+  hashAccessCode,
+} from './video/index.js';
+export type {
+  DreameCameraControllerInput,
+  CameraStreamHandle,
+  MonitorActionCaller,
+  RelayMinter,
+} from './video/index.js';

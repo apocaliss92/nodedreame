@@ -20,3 +20,18 @@ export { streamQuery, type StreamInfo, type StreamQueryInput } from './aliyun/vi
 export { loginByOauth, createIotSession, type OaSession, type IotSession } from './aliyun/identity.js';
 export { ALIYUN_REGION_ID } from './aliyun/constants.js';
 export { DreameVideoSession, type DreameVideoSessionInput } from './aliyun/session.js';
+
+// --- Camera monitor control-plane (MIoT SIID 10001) + autonomous cold-start --
+export {
+  DreameCameraController,
+  type DreameCameraControllerInput,
+  type CameraStreamHandle,
+  type MonitorActionCaller,
+  type RelayMinter,
+  MONITOR_SIID,
+  MONITOR_AIID,
+  MONITOR_PIID,
+  MONITOR_VENDOR_TOKEN,
+  makeMonitorSession,
+  hashAccessCode,
+} from './monitor/index.js';
