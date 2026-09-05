@@ -35,3 +35,26 @@ export {
   makeMonitorSession,
   hashAccessCode,
 } from './monitor/index.js';
+
+// --- Camera media pipeline (RTMP relay -> H.264/AAC frames) -----------------
+export {
+  DreameCameraStream,
+  type DreameCameraStreamInput,
+  type DreameCameraStreamEvents,
+  type FrameSource,
+  type FrameSourceFactory,
+  LvRtmpClient,
+  parseRelayUrl,
+  LV_STATUS,
+  type LvRtmpClientOptions,
+  type VideoAccessUnitEvent,
+  type AudioInfoEvent,
+  type StatusEvent,
+  avccToAnnexB,
+  aacToAdts,
+  parseAvcConfig,
+  parseAacConfig,
+  aacSampleRate,
+  type AvcConfig,
+  type AacConfig,
+} from './media/index.js';

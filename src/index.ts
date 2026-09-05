@@ -243,3 +243,28 @@ export type {
   MonitorActionCaller,
   RelayMinter,
 } from './video/index.js';
+
+// --- Camera media pipeline (RTMP relay -> H.264/AAC frames) -----------------
+export {
+  DreameCameraStream,
+  LvRtmpClient,
+  parseRelayUrl,
+  LV_STATUS,
+  avccToAnnexB,
+  aacToAdts,
+  parseAvcConfig,
+  parseAacConfig,
+  aacSampleRate,
+} from './video/index.js';
+export type {
+  DreameCameraStreamInput,
+  DreameCameraStreamEvents,
+  FrameSource,
+  FrameSourceFactory,
+  LvRtmpClientOptions,
+  VideoAccessUnitEvent,
+  AudioInfoEvent,
+  StatusEvent,
+  AvcConfig,
+  AacConfig,
+} from './video/index.js';
