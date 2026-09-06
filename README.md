@@ -6,11 +6,19 @@ Node.js/TypeScript client for Dreame robot vacuums and mowers via the Dreamehome
 
 ## Status
 
-Phase 4 complete: on top of the Phase 2 generic handle, `discoverDevices()` now
-returns a typed `VacuumDevice` for `dreame.vacuum.*` models and a typed
-`MowerDevice` for `dreame.mower.*` models, each with decoded state getters and
-capability-gated commands. Live map / pose-coverage track decoding (Phase 5) is
-not implemented yet.
+`discoverDevices()` returns a typed `VacuumDevice` for `dreame.vacuum.*` models
+and a typed `MowerDevice` for `dreame.mower.*` models, each with decoded state
+getters and capability-gated commands. On top of that:
+
+- **Maps** — live vacuum map decode (I/P-frame stream) + PNG render, mower map + SVG.
+- **Connectivity** — per-device online/link-type/broker/firmware/serial view
+  ([Connectivity](#connectivity)).
+- **WiFi signal** — the robot's WiFi coverage heatmap, sampled at the robot's
+  pose for a current-signal reading ([WiFi signal](#wifi-signal)).
+- **Camera & video** (X40/X50 class) — autonomous cold-start of the LinkVisual
+  RTMP stream with H.264+AAC frame output, camera actions (drive/presets/sounds/
+  light), object detections, and two-way intercom
+  ([Camera & video streaming](#camera--video-streaming)).
 
 Under the hood:
 
@@ -287,6 +295,144 @@ The vacuum map decoder is ported from
 parser and SVG renderer from
 [antondaubert/dreame-mower](https://github.com/antondaubert/dreame-mower). Both
 are MIT — see `LICENSE`.
+
+## Connectivity
+
+Every `DreameDevice` from `listDevices()` (and the records behind
+`discoverDevices()`) carries a distilled connectivity view — everything the
+Dreame cloud actually reports:
+
+```ts
+import { listDevices } from '@apocaliss92/nodedreame';
+
+for (const d of await listDevices({ session, region: 'eu' })) {
+  console.log(d.name, d.connectivity);
+  // {
+  //   online: true,
+  //   connectionType: 'WIFI',            // or 'BLE' (mowers)
+  //   mac, broker: { host, port },       // assigned MQTT broker (bindDomain)
+  //   region, cloudVendor, firmwareVersion, serialNumber, subModel,
+  //   battery, statusCode
+  // }
+}
+```
+
+`parseConnectivity(rawRecord)` is exported for parsing a record you already hold.
+Note: the cloud record does **not** expose Wi-Fi RSSI / SSID / local IP — those
+are native-firmware only. For signal strength use the WiFi map below.
+
+## WiFi signal
+
+The robot has no live RSSI property; its only signal data is a **WiFi coverage
+map** it builds while cleaning. nodedreame fetches the **last stored** map (no
+robot movement — the same thing the app shows), decodes the per-cell signal
+level, and — since the map header carries the robot pose — reports the signal at
+the robot's current position.
+
+```ts
+const bars = await vacuum.getCurrentSignal();       // 0–4 (0 = unreached), or null
+const png  = await vacuum.getWifiSignalImage();     // Buffer: heatmap PNG (ready to show)
+const map  = await vacuum.getWifiSignalMap();       // full data:
+//   map.dimensions {left,top,width,height,gridSize}
+//   map.robot / map.dock  (poses, mm world frame)
+//   map.cells            (Uint8Array, raw nibble per cell)
+//   map.signalAt(x, y)   -> bars 1–4 / 0 unreached / null (no data / off-map)
+//   map.currentSignal    -> bars at the robot pose
+```
+
+Each call issues `requestWMap` (map service action `6/4`) to (re)fetch the last
+stored map, polls `PropWifiMap` (`6/15`) for the OSS object, and decodes it via
+the normal signed-OSS map pipeline. Signal levels: `10` unreached, `11`–`14` =
+1–4 bars. Throws if the device has never built a WiFi map.
+
+## Camera & video streaming
+
+For camera-equipped vacuums (X40/X50 class, LinkVisual/Aliyun backend),
+nodedreame **autonomously cold-starts the live stream** — no Dreamehome app — and
+emits demuxed H.264 + AAC frames any consumer (ffmpeg, scrypted, camstack) can
+use.
+
+### How it works (high level)
+
+```
+DreameCameraController.open()          DreameCameraStream            consumer
+─────────────────────────────         ──────────────────           ────────
+1. getAccessCodeLaunch (prime)   ┐
+2. initCameraSdk (boot agent)    │  MIoT actions on siid 10001
+3. startMonitor  ── code -1 ─────┤  over the device's MQTT channel
+4. verifyAccessCode(sha256 PIN)  │  (the camera has a per-session
+5. startMonitor (retry) ── ok ───┘  privacy gate: PIN is mandatory)
+6. keep-alive loop (~10s)                    │
+7. stream/query (Aliyun) → RTMP relay URL ───┤
+                                             ▼
+                              LvRtmpClient connects to the relay
+                              (private-mode RTMP), demuxes FLV →
+                              emits: videoAccessUnit (H.264 Annex-B),
+                                     audioFrame (AAC/ADTS), audioInfo
+                                             │
+                                             ▼  (scrypted wraps these as RFC4571;
+                                                camstack consumes frames directly)
+```
+
+The **access-code gate** is the key device quirk: a bare `startMonitor` returns
+`code:-1`; you must first `verifyAccessCode` with the SHA-256 of the pairing PIN,
+then `startMonitor` is accepted and the Aliyun relay mints an RTMP URL. The whole
+sequence, keep-alive, and teardown are handled by `DreameCameraController`.
+
+### Quick start
+
+```ts
+const controller = await vacuum.createCameraController({ accessCode: '0000' });
+const { rtmpUrl } = await controller.open();   // cold-start → live relay URL (H.264+AAC)
+// … hand rtmpUrl to ffmpeg, or use DreameCameraStream for frames …
+await controller.close();                      // stops keep-alive + releases the monitor
+```
+
+Frame-level pipeline (what camstack/scrypted build on):
+
+```ts
+import { DreameCameraStream } from '@apocaliss92/nodedreame';
+
+const stream = new DreameCameraStream({ controller });
+stream.on('videoAccessUnit', (au) => { /* au.data = H.264 Annex-B, au.isKeyframe */ });
+stream.on('audioFrame', (buf) => { /* AAC ADTS */ });
+await stream.start();   // cold-start + connect + emit frames
+// … later …
+await stream.stop();
+```
+
+### Camera actions (control plane)
+
+All on `DreameCameraController`, most gated to an open stream:
+
+| Method | Effect |
+| --- | --- |
+| `driveDirection('forward'\|'left'\|'right'\|'turnAround'\|'stop')` / `drive(spdv, spdw)` | Remote-drive the robot (send ~1 Hz while held; the camera is fixed, the robot moves) |
+| `returnToDock()` · `locate()` | Send home / beep to locate |
+| `spotClean()` · `startPersonFollow()` / `stopPersonFollow()` · `findPet()` · `goToPoint(sp, tp)` | Work-mode actions |
+| `stopWork()` | Universal stop (follow / spot-clean / cruise) |
+| `playPetSound('meow'\|'bark'\|'footsteps'\|'purring'\|'tickTock')` / `playSound(id)` | Play a sound clip |
+| `setFillLight(level)` / `setFillLightAuto(full)` | Fill-light brightness / full-light on-off |
+| `takePhoto()` | Device-side snapshot (uploads to cloud) |
+| `startIntercom()` / `stopIntercom()` | Two-way audio session (control) |
+| `runVacuumAction('startClean'\|'pauseClean'\|'stopClean'\|'dockWash'\|'autoEmpty')` | Common whole-robot actions |
+
+### Two-way intercom (talk-back)
+
+The mic uplink is RTMP type-8 audio pushed upstream on the same play session
+(G.711 A-law, 8 kHz). On the stream:
+
+```ts
+await stream.startTalk();                 // MIoT intercom start + wait for TalkReady
+stream.sendTalkPcm(pcm16le8kMono);        // encodes to A-law + pushes upstream
+await stream.stopTalk();
+```
+
+### Object detections
+
+The robot's own person-follow (`10001/110`) and obstacle (`10001/112`) boxes are
+pushed as camera-service properties; parse them with `parsePersonFollow` /
+`parseObstacleData` (subscribe to the device's `propertyChanged`).
 
 ## Diagnostic dump (read-only)
 
