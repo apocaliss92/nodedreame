@@ -25,6 +25,13 @@ import {
   VACUUM_MOVE,
   VACUUM_CHARGE,
   VACUUM_LOCATE,
+  VACUUM_ACTIONS,
+  VOICE_SIID,
+  VOICE_PLAY_SOUND_AIID,
+  VOICE_SOUND_PIID,
+  PET_SOUNDS,
+  type PetSound,
+  type VacuumActionKey,
 } from './constants.js';
 import {
   accessCodeLaunchParams,
@@ -326,10 +333,42 @@ export class DreameCameraController {
     ]);
   }
 
-  /** Stop person-follow mode. */
-  async stopPersonFollow(): Promise<unknown> {
-    this.#requireSession();
+  /**
+   * Universal stop for the current work mode — stops person-follow, spot-clean,
+   * go-to-point, cruise, etc. (siid 4 / aiid 2).
+   */
+  async stopWork(): Promise<unknown> {
     return this.#device.callAction(VACUUM_SIID, VACUUM_MOVE.STOP_AIID, []);
+  }
+
+  /** Stop person-follow mode (alias for {@link stopWork}). */
+  async stopPersonFollow(): Promise<unknown> {
+    return this.stopWork();
+  }
+
+  /** Spot-clean the robot's current position (WorkMode SpotClean). */
+  async spotClean(): Promise<unknown> {
+    return this.#device.callAction(VACUUM_SIID, VACUUM_MOVE.WORK_AIID, [
+      { piid: VACUUM_MOVE.MODE_PIID, value: VACUUM_MOVE.MODE_SPOT_CLEAN },
+    ]);
+  }
+
+  /** Play one of the robot's sound clips (e.g. pet sounds) by id. */
+  async playSound(soundId: number): Promise<unknown> {
+    return this.#device.callAction(VOICE_SIID, VOICE_PLAY_SOUND_AIID, [
+      { piid: VOICE_SOUND_PIID, value: soundId },
+    ]);
+  }
+
+  /** Play a named pet-teasing sound (meow/bark/footsteps/purring/tickTock). */
+  async playPetSound(sound: PetSound): Promise<unknown> {
+    return this.playSound(PET_SOUNDS[sound]);
+  }
+
+  /** Run a common whole-robot action (startClean/pauseClean/stopClean/dockWash/autoEmpty). */
+  async runVacuumAction(action: VacuumActionKey): Promise<unknown> {
+    const a = VACUUM_ACTIONS[action];
+    return this.#device.callAction(a.siid, a.aiid, []);
   }
 
   /** Find-pet: cruise the home looking for the pet. */

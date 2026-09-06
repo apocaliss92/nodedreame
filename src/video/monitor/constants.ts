@@ -78,14 +78,44 @@ export const VACUUM_MOVE = {
   /** piid carrying the point-info JSON in the WORK action. */
   POINT_PIID: 10,
   /** Work-mode selector values. */
-  MODE_SPOT: 23, // go to point
+  MODE_SPOT: 23, // go to point (MonitorSpotMode)
   MODE_CRUISE: 22, // cruise / patrol / find-pet
   MODE_PERSON_FOLLOW: 26,
+  MODE_SPOT_CLEAN: 20, // spot-clean the current position (SpotClean)
   /** Auto-switch setter property (fill-light auto/full toggle lives here). */
   AUTO_SWITCH_PIID: 50,
 } as const;
 
 /** Return-to-dock / charge action (battery service). */
 export const VACUUM_CHARGE = { siid: 3, aiid: 1 } as const;
+
+/**
+ * Voice/audio service (SIID 7). aiid 1 = position/locate (robot beeps), aiid 2 =
+ * playSound (play a sound clip by id, carried in piid 4).
+ */
+export const VOICE_SIID = 7;
+export const VOICE_LOCATE_AIID = 1;
+export const VOICE_PLAY_SOUND_AIID = 2;
+export const VOICE_SOUND_PIID = 4;
 /** Locate action — the robot beeps so you can find it. */
-export const VACUUM_LOCATE = { siid: 7, aiid: 1 } as const;
+export const VACUUM_LOCATE = { siid: VOICE_SIID, aiid: VOICE_LOCATE_AIID } as const;
+
+/** Pet-teasing sound clips playable via {@link VOICE_PLAY_SOUND_AIID}. */
+export const PET_SOUNDS = {
+  meow: 684,
+  bark: 685,
+  footsteps: 686,
+  purring: 687,
+  tickTock: 688,
+} as const;
+export type PetSound = keyof typeof PET_SOUNDS;
+
+/** Common whole-robot actions (usable as camera presets). */
+export const VACUUM_ACTIONS = {
+  startClean: { siid: 2, aiid: 1 },
+  pauseClean: { siid: 2, aiid: 2 },
+  stopClean: { siid: 4, aiid: 2 },
+  dockWash: { siid: 4, aiid: 4 },
+  autoEmpty: { siid: 15, aiid: 1 },
+} as const;
+export type VacuumActionKey = keyof typeof VACUUM_ACTIONS;

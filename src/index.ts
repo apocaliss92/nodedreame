@@ -236,6 +236,8 @@ export {
   MONITOR_VENDOR_TOKEN,
   VACUUM_SIID,
   VACUUM_MOVE,
+  PET_SOUNDS,
+  VACUUM_ACTIONS,
   makeMonitorSession,
   hashAccessCode,
   parsePersonFollow,
@@ -252,6 +254,8 @@ export type {
   PersonFollowDetection,
   ObstacleDetection,
   DriveDirection,
+  PetSound,
+  VacuumActionKey,
 } from './video/index.js';
 
 // --- Camera media pipeline (RTMP relay -> H.264/AAC frames) -----------------

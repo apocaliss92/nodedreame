@@ -10,6 +10,15 @@ export {
   FILL_LIGHT_MIN,
   VACUUM_SIID,
   VACUUM_MOVE,
+  VACUUM_CHARGE,
+  VACUUM_LOCATE,
+  VACUUM_ACTIONS,
+  VOICE_SIID,
+  VOICE_PLAY_SOUND_AIID,
+  VOICE_SOUND_PIID,
+  PET_SOUNDS,
+  type PetSound,
+  type VacuumActionKey,
 } from './constants.js';
 export {
   parsePersonFollow,
