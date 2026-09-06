@@ -7,6 +7,7 @@ import {
   type FetchImpl,
 } from '../transport/http.js';
 import { DeviceListResponseSchema, type RawDevice } from '../transport/schemas.js';
+import { parseConnectivity } from './connectivity.js';
 
 export interface ListDevicesInput {
   session: DreameSession;
@@ -76,6 +77,7 @@ function toDevice(rawIn: RawDevice): DreameDevice {
     online,
     raw,
     cloudState: parseCloudState(raw),
+    connectivity: parseConnectivity(raw),
   };
   if (rawIn.mac) {
     device.mac = String(rawIn.mac);

@@ -1,4 +1,5 @@
 import type { DreameRegion } from '../auth/config.js';
+import type { DeviceConnectivity } from './connectivity.js';
 
 export interface DreameSession {
   accessToken: string;
@@ -20,6 +21,8 @@ export interface DreameDevice {
   firmwareVersion?: string;
   serialNumber?: string;
   cloudState?: DreameCloudState;
+  /** Connectivity/diagnostic view distilled from the cloud record. */
+  connectivity?: DeviceConnectivity;
 }
 
 /** Cloud-cached subset of device state distilled from the device-list response. */

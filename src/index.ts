@@ -285,3 +285,9 @@ export type {
   AvcConfig,
   AacConfig,
 } from './video/index.js';
+
+// --- Raw device-list access (connectivity/diagnostics) --------------------
+export { listDevices } from './cloud/devices.js';
+export type { ListDevicesInput } from './cloud/devices.js';
+export { parseConnectivity } from './cloud/connectivity.js';
+export type { DeviceConnectivity, BrokerEndpoint } from './cloud/connectivity.js';
