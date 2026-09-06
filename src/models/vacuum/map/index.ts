@@ -53,6 +53,9 @@ export { MapDecodeError } from './envelope.js';
 export { renderVacuumPng } from './render.js';
 export type { RenderVacuumPngOptions, MapColorScheme } from './render.js';
 
+export { decodeWifiSignalMap, renderWifiSignalPng } from './wifi.js';
+export type { WifiSignalMap, RenderWifiSignalPngOptions } from './wifi.js';
+
 // ── Signed OSS blob fetcher ───────────────────────────────────────────────
 export { OssFetcher } from './oss-fetch.js';
 export type { OssFetchInput, OssFetcherOpts, OssFetcherLike } from './oss-fetch.js';

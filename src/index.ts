@@ -49,7 +49,7 @@ export type {
 // and the capability records/resolver. Internal siid/piid/aiid property maps,
 // the model factory's property tables, and the decode helpers stay private.
 export { VacuumDevice } from './models/vacuum/vacuum-device.js';
-export type { CleanOpts, VacuumGetMapInput } from './models/vacuum/vacuum-device.js';
+export type { CleanOpts, VacuumGetMapInput, WifiSignalMapInput } from './models/vacuum/vacuum-device.js';
 // Fetcher-injection seam for VacuumDevice.getMap: the interface a custom
 // signed-blob fetcher implements, plus its input shape. The concrete
 // OssFetcher class and the decode internals stay private.
@@ -291,3 +291,7 @@ export { listDevices } from './cloud/devices.js';
 export type { ListDevicesInput } from './cloud/devices.js';
 export { parseConnectivity } from './cloud/connectivity.js';
 export type { DeviceConnectivity, BrokerEndpoint } from './cloud/connectivity.js';
+
+// --- WiFi signal map (coverage heatmap + current-signal at robot pose) -----
+export { decodeWifiSignalMap, renderWifiSignalPng } from './models/vacuum/map/index.js';
+export type { WifiSignalMap, RenderWifiSignalPngOptions } from './models/vacuum/map/index.js';

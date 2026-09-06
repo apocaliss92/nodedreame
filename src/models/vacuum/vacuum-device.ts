@@ -57,10 +57,14 @@ import {
   applyVacuumPFrame,
   MapDecodeError,
   OssFetcher,
+  decodeWifiSignalMap,
+  renderWifiSignalPng,
   type VacuumMap,
   type VacuumMapDecodeOptions,
   type OssFetchInput,
   type OssFetcherLike,
+  type WifiSignalMap,
+  type RenderWifiSignalPngOptions,
 } from './map/index.js';
 import { OutOfOrderFrameError } from './map/merge.js';
 import { looksLikeBase64Zlib, unwrapEnvelope } from './map/envelope.js';
@@ -96,6 +100,27 @@ export interface VacuumGetMapInput {
   /** Optional AES key for an encrypted blob (hex). */
   key?: string;
   /** Optional AES IV for an encrypted blob (hex). */
+  iv?: string;
+  /** Override the API host (defaults from the device region). */
+  host?: string;
+  /** Per-request timeout override in ms. */
+  timeoutMs?: number;
+  /** Caller-supplied AbortSignal. */
+  signal?: AbortSignal;
+}
+
+/** Input to {@link VacuumDevice.getWifiSignalMap} / {@link VacuumDevice.getCurrentSignal}. */
+export interface WifiSignalMapInput {
+  /** Request the last stored map first (default true). `false` = read what's advertised. */
+  requestFresh?: boolean;
+  /** Poll interval (ms) while waiting for the OSS object to be advertised. Default 2500. */
+  pollMs?: number;
+  /** Max wait (ms) for the map to become available. Default 20000. */
+  maxWaitMs?: number;
+  /** Inject the signed-blob fetcher (tests pass a fake). */
+  fetcher?: OssFetcherLike;
+  /** Optional AES key/iv for an encrypted blob (hex). */
+  key?: string;
   iv?: string;
   /** Override the API host (defaults from the device region). */
   host?: string;
@@ -665,6 +690,73 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
       ...(input.key !== undefined ? { key: input.key } : {}),
       ...(input.iv !== undefined ? { iv: input.iv } : {}),
     };
+  }
+
+  /**
+   * Fetch the robot's Wi-Fi signal map — the last stored coverage heatmap, with
+   * NO robot movement. Requests it (map service `wifiMap` action, siid 6 aiid 4),
+   * polls `PropWifiMap` (6/15) for the OSS object it advertises, fetches + decodes
+   * it into a per-cell signal grid + geometry + robot/dock poses. The signal at
+   * any world point (incl. the robot's own position) is a lookup — see
+   * {@link WifiSignalMap.signalAt} / {@link WifiSignalMap.currentSignal}.
+   *
+   * Pass `requestFresh: false` to skip the request and read whatever is already
+   * advertised. Throws if no Wi-Fi map exists yet (never run on this device).
+   */
+  async getWifiSignalMap(input: WifiSignalMapInput = {}): Promise<WifiSignalMap> {
+    if (input.requestFresh !== false) {
+      try {
+        await this.callAction(6, 4, []);
+      } catch {
+        /* best-effort: the object may already be advertised */
+      }
+    }
+    const pollMs = input.pollMs ?? 2500;
+    const deadline = Date.now() + (input.maxWaitMs ?? 20_000);
+    let objectName = '';
+    for (;;) {
+      const res = await this.refreshProperties([{ siid: 6, piid: 15 }]);
+      const val = res[0]?.value;
+      if (typeof val === 'string' && val.length > 0) {
+        objectName = val;
+        break;
+      }
+      if (Date.now() + pollMs >= deadline) {
+        throw new DreameError('wifi signal map not available (none stored yet, or request timed out)');
+      }
+      await new Promise((r) => setTimeout(r, pollMs));
+    }
+    // The property is `"<n>,<oss-object-name>"`; the OSS fetcher wants the object name.
+    const filename = objectName.replace(/^\d+,/, '');
+    const blob = await this.#fetchMapBlob({
+      filename,
+      ...(input.fetcher ? { fetcher: input.fetcher } : {}),
+      ...(input.host ? { host: input.host } : {}),
+      ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+      ...(input.signal ? { signal: input.signal } : {}),
+    });
+    return decodeWifiSignalMap(blob, this.#decodeOpts(input));
+  }
+
+  /**
+   * Render the Wi-Fi signal map as a simple PNG heatmap image (weakest→strongest,
+   * unreached grey, robot marker) — ready to display. Convenience over
+   * {@link getWifiSignalMap} + {@link renderWifiSignalPng}.
+   */
+  async getWifiSignalImage(
+    input: WifiSignalMapInput & RenderWifiSignalPngOptions = {},
+  ): Promise<Buffer> {
+    const map = await this.getWifiSignalMap(input);
+    return renderWifiSignalPng(map, input);
+  }
+
+  /**
+   * The one-call "current Wi-Fi signal": fetches the signal map and returns the
+   * bars (1–4, 0 = unreached) at the robot's own position, or null when unknown.
+   */
+  async getCurrentSignal(input: WifiSignalMapInput = {}): Promise<number | null> {
+    const map = await this.getWifiSignalMap(input);
+    return map.currentSignal;
   }
 
   /**
