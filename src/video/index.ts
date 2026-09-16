@@ -9,6 +9,8 @@ export {
   getAliyunAuthCode,
   getVideoFamilyId,
   getDeviceVideoProfile,
+  getTencentIdentity,
+  getTencentP2PInfo,
   type VideoRequestInput,
 } from './client.js';
 export { explainNoCameraChannel } from './camera-availability.js';

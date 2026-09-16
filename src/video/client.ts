@@ -10,10 +10,17 @@ import {
   AuthCodeResponseSchema,
   DeviceInfoResponseSchema,
   FamilyIdResponseSchema,
+  TencentIdentityResponseSchema,
+  TencentP2PInfoResponseSchema,
   VideoAccessTokenResponseSchema,
 } from './schemas.js';
 import { toVideoProfile } from './profile.js';
-import type { DeviceVideoProfile, VideoAccessToken } from './types.js';
+import type {
+  DeviceVideoProfile,
+  TencentDeviceIdentity,
+  TencentP2PDescriptor,
+  VideoAccessToken,
+} from './types.js';
 
 /** Path prefixes for the two video control-plane services on the region host. */
 const P_THIRD_VIDEO = '/dreame-third-video';
@@ -110,6 +117,66 @@ export async function getVideoFamilyId(
     ...passthrough(input),
   });
   return FamilyIdResponseSchema.parse(raw).data.data.familyId;
+}
+
+/**
+ * The device's TENCENT IoT triple.
+ *
+ * Only meaningful while the device sits on the `tx` vendor: the cloud answers
+ * `设备三元组不存在` ("the triple does not exist") otherwise, which this
+ * surfaces as a thrown {@link DreameError} like any other refusal — a device on
+ * `ali` has no Tencent identity, and that is a statement about the device, not
+ * a failure of the call.
+ */
+export async function getTencentIdentity(
+  input: VideoRequestInput & { did: string; videoToken?: string },
+): Promise<TencentDeviceIdentity> {
+  const ctx = resolveCtx(input);
+  const videoToken = input.videoToken ?? (await getVideoAccessToken({ ...input, ctx })).token;
+  const raw = await httpPostJsonBody<BaseResponse>({
+    ctx,
+    path: `${P_THIRD_VIDEO}/tx/mgr/dev/getIdentity`,
+    body: { accesstoken: videoToken, os: DEFAULT_OS, did: input.did },
+    context: 'tencent identity',
+    ...passthrough(input),
+  });
+  const d = TencentIdentityResponseSchema.parse(raw).data.data;
+  return {
+    productId: d.productId,
+    deviceName: d.deviceName,
+    deviceId: d.deviceId ?? null,
+    secretId: d.secretId ?? null,
+    secretKey: d.secretKey ?? null,
+  };
+}
+
+/**
+ * The xp2p session descriptor for a device on the `tx` vendor.
+ *
+ * ## This may WAKE THE CAMERA
+ *
+ * It is the Tencent equivalent of asking for a stream, so it is never called
+ * as part of a status read.
+ *
+ * The result is opaque (see {@link TencentP2PDescriptor}) and is useless
+ * without an xp2p implementation: measured on an X50 on 2026-09-16, the
+ * sibling `tx/dev/getRtcInfo` — the TRTC path, which WOULD be portable — answers
+ * 404 for this model. So the only media plane Tencent offers this device is the
+ * proprietary UDP P2P one.
+ */
+export async function getTencentP2PInfo(
+  input: VideoRequestInput & { did: string; videoToken?: string },
+): Promise<TencentP2PDescriptor> {
+  const ctx = resolveCtx(input);
+  const videoToken = input.videoToken ?? (await getVideoAccessToken({ ...input, ctx })).token;
+  const raw = await httpPostJsonBody<BaseResponse>({
+    ctx,
+    path: `${P_THIRD_VIDEO}/tx/dev/getP2PInfo`,
+    body: { accesstoken: videoToken, os: DEFAULT_OS, did: input.did },
+    context: 'tencent p2p info',
+    ...passthrough(input),
+  });
+  return { p2pInfo: TencentP2PInfoResponseSchema.parse(raw).data.data.p2pInfo };
 }
 
 /**

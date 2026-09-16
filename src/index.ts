@@ -201,6 +201,8 @@ export {
   getAliyunAuthCode,
   getVideoFamilyId,
   getDeviceVideoProfile,
+  getTencentIdentity,
+  getTencentP2PInfo,
   explainNoCameraChannel,
   toVideoProfile,
 } from './video/index.js';

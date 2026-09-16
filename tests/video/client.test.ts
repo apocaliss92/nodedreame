@@ -6,6 +6,8 @@ import {
   getAliyunAuthCode,
   getVideoFamilyId,
   getDeviceVideoProfile,
+  getTencentIdentity,
+  getTencentP2PInfo,
 } from '../../src/video/client.js';
 import { DreameApiError } from '../../src/transport/errors.js';
 
@@ -116,3 +118,95 @@ describe('getDeviceVideoProfile', () => {
     expect(JSON.parse(String(fetchImpl.mock.calls[0]![1]?.body))).toEqual({ did: 'DID_ABC' });
   });
 });
+
+/**
+ * THE TENCENT CONTROL PLANE.
+ *
+ * Shapes captured live from an X50 Ultra Complete on 2026-09-16, the day the
+ * device moved to `vendor: tx`. On 2026-09-05 the SAME device was on `ali` and
+ * every one of these answered `设备三元组不存在` — the triple does not exist —
+ * which is why a failure here is a statement about the device's vendor and not
+ * a fault in the call.
+ */
+describe('getTencentIdentity', () => {
+  it('parses the device triple', async () => {
+    const fetchImpl = vi.fn<FetchImpl>(async (url) =>
+      String(url).includes('accesstoken')
+        ? okResponse({ code: 0, data: { data: { token: 'VT', userId: 1, expireAt: 9_999_999_999 } } })
+        : okResponse({
+            code: 0,
+            success: true,
+            data: {
+              requestId: 'r',
+              data: {
+                productId: 'PXL5Y08V1E',
+                deviceName: 'XHK3T19TUD6s1jtf',
+                deviceId: 'PXL5Y08V1E/XHK3T19TUD6s1jtf',
+                secretId: 'SID',
+                secretKey: 'SKEY',
+              },
+            },
+          }),
+    );
+    const id = await getTencentIdentity({ ...base(fetchImpl), did: 'DID_ABC' });
+    expect(id.productId).toBe('PXL5Y08V1E');
+    expect(id.deviceName).toBe('XHK3T19TUD6s1jtf');
+    expect(id.deviceId).toBe('PXL5Y08V1E/XHK3T19TUD6s1jtf');
+  });
+
+  // The secrets are optional in the wire shape and absent for some accounts;
+  // a device without them is still a device, not a parse failure.
+  it('survives a triple with no secrets', async () => {
+    const fetchImpl = vi.fn<FetchImpl>(async (url) =>
+      String(url).includes('accesstoken')
+        ? okResponse({ code: 0, data: { data: { token: 'VT', userId: 1, expireAt: 9_999_999_999 } } })
+        : okResponse({
+            code: 0,
+            data: { data: { productId: 'P', deviceName: 'D' } },
+          }),
+    );
+    const id = await getTencentIdentity({ ...base(fetchImpl), did: 'DID' });
+    expect(id.secretId).toBeNull();
+    expect(id.secretKey).toBeNull();
+  });
+
+  it('carries the did the cloud keys on', async () => {
+    const fetchImpl = vi.fn<FetchImpl>(async (url) =>
+      String(url).includes('accesstoken')
+        ? okResponse({ code: 0, data: { data: { token: 'VT', userId: 1, expireAt: 9_999_999_999 } } })
+        : okResponse({ code: 0, data: { data: { productId: 'P', deviceName: 'D' } } }),
+    );
+    await getTencentIdentity({ ...base(fetchImpl), did: 'DID_ABC' });
+    const [, init] = fetchImpl.mock.calls[1]!;
+    expect(String(init?.body)).toContain('DID_ABC');
+  });
+
+  it('refuses a device that is not on tx, like any other cloud refusal', async () => {
+    const fetchImpl = vi.fn<FetchImpl>(async (url) =>
+      String(url).includes('accesstoken')
+        ? okResponse({ code: 0, data: { data: { token: 'VT', userId: 1, expireAt: 9_999_999_999 } } })
+        : okResponse({ code: 10400, success: false, msg: '设备三元组不存在' }),
+    );
+    await expect(
+      getTencentIdentity({ ...base(fetchImpl), did: 'DID' }),
+    ).rejects.toBeInstanceOf(DreameApiError);
+  });
+});
+
+describe('getTencentP2PInfo', () => {
+  /**
+   * The descriptor is OPAQUE — 35 characters, not JSON, on the measured X50.
+   * Nothing parses it, and this pins that: a future "helpful" parse would be
+   * inventing structure that is not there.
+   */
+  it('carries the descriptor through without interpreting it', async () => {
+    const opaque = 'ypVXKzGmMUSCmfeDgBgYLwXkAZgyxJBBWQx';
+    const fetchImpl = vi.fn<FetchImpl>(async (url) =>
+      String(url).includes('accesstoken')
+        ? okResponse({ code: 0, data: { data: { token: 'VT', userId: 1, expireAt: 9_999_999_999 } } })
+        : okResponse({ code: 0, data: { requestId: 'r', data: { p2pInfo: opaque } } }),
+    );
+    const d = await getTencentP2PInfo({ ...base(fetchImpl), did: 'DID' });
+    expect(d.p2pInfo).toBe(opaque);
+  });
+})

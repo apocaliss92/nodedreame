@@ -49,6 +49,53 @@ export const FamilyIdResponseSchema = z
   .passthrough();
 export type FamilyIdResponse = z.infer<typeof FamilyIdResponseSchema>;
 
+/**
+ * `tx/mgr/dev/getIdentity` → the device's TENCENT IoT triple.
+ *
+ * Absent until the device is actually provisioned on `tx`: on 2026-09-05 this
+ * endpoint answered `设备三元组不存在` ("the triple does not exist") for an X50
+ * that was then on `ali`, and on 2026-09-16 the same device — moved to `tx` —
+ * returned a full triple. So a failure here is a vendor statement, not a bug.
+ */
+export const TencentIdentityResponseSchema = z
+  .object({
+    code: z.number().optional(),
+    msg: z.string().nullish(),
+    data: z
+      .object({
+        data: z
+          .object({
+            productId: z.string(),
+            deviceName: z.string(),
+            deviceId: z.string().optional(),
+            secretId: z.string().optional(),
+            secretKey: z.string().optional(),
+          })
+          .passthrough(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+export type TencentIdentityResponse = z.infer<typeof TencentIdentityResponseSchema>;
+
+/**
+ * `tx/dev/getP2PInfo` → the xp2p session descriptor.
+ *
+ * An OPAQUE string — measured at 35 characters on an X50, and NOT JSON: it is
+ * the handle Tencent's xp2p SDK consumes, not a relay URL. Nothing here parses
+ * it, because there is nothing in it we can read.
+ */
+export const TencentP2PInfoResponseSchema = z
+  .object({
+    code: z.number().optional(),
+    msg: z.string().nullish(),
+    data: z
+      .object({ data: z.object({ p2pInfo: z.string() }).passthrough() })
+      .passthrough(),
+  })
+  .passthrough();
+export type TencentP2PInfoResponse = z.infer<typeof TencentP2PInfoResponseSchema>;
+
 /** Nested `deviceInfo` block within a device record, carrying the video vendor hints. */
 export const DeviceVideoInfoSchema = z
   .object({

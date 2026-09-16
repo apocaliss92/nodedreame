@@ -44,3 +44,29 @@ export interface DeviceVideoProfile {
   /** Whether the device is online. */
   readonly online: boolean;
 }
+
+/**
+ * A device's TENCENT IoT triple, from `tx/mgr/dev/getIdentity`.
+ *
+ * Present only while the device is provisioned on the `tx` vendor. The secrets
+ * are session-scoped credentials for the Tencent IoT plane — never log them.
+ */
+export interface TencentDeviceIdentity {
+  readonly productId: string;
+  readonly deviceName: string;
+  /** `<productId>/<deviceName>`, as the cloud composes it. */
+  readonly deviceId: string | null;
+  readonly secretId: string | null;
+  readonly secretKey: string | null;
+}
+
+/**
+ * The xp2p session descriptor from `tx/dev/getP2PInfo`.
+ *
+ * OPAQUE by nature: measured at 35 characters on an X50 and not JSON — it is
+ * the handle Tencent's proprietary xp2p SDK consumes to open the UDP P2P
+ * session, not a URL anything else can dial. It is carried, never parsed.
+ */
+export interface TencentP2PDescriptor {
+  readonly p2pInfo: string;
+}
