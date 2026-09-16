@@ -79,4 +79,36 @@ describe('explainNoCameraChannel', () => {
     const msg = explainNoCameraChannel(profile({ currentVendor: null })) ?? '';
     expect(msg).toContain('none');
   });
+
+  /**
+   * THE CASE THAT COST A MORNING. Measured on a live X50 (dreame.vacuum.r2538z)
+   * on 2026-09-16 while its owner was watching the stream in the Dreame app:
+   *
+   *   videoCapable: true, online: true, currentVendor: 'tx',
+   *   supportedVendors: ['tx','ali'], iotId: null
+   *
+   * The device is provisioned and streaming — over TENCENT. `iotId` is read
+   * from the ALIYUN bind endpoint (`iotuserbind/device/info`), so for a `tx`
+   * device it is absent by construction and will never appear, whatever the
+   * owner does in the app.
+   *
+   * The advice "open it once in the app to create the binding" is therefore
+   * WRONG here, and it was given: the owner had the app streaming at that very
+   * moment. A diagnostic that sends someone to do something that cannot work
+   * is worse than one that says nothing.
+   */
+  it('names the vendor gap instead of telling the owner to re-pair', () => {
+    const msg = explainNoCameraChannel(profile({ currentVendor: 'tx' })) ?? '';
+    expect(msg).toContain('tx');
+    expect(msg).toMatch(/aliyun/i);
+    // It must NOT repeat the advice that cannot help a `tx` device.
+    expect(msg).not.toMatch(/open its camera once in the Dreame app/i);
+  });
+
+  // …and the advice must SURVIVE for the case it is actually right for: a
+  // camera on no vendor at all has simply never streamed.
+  it('keeps the app advice for a device bound to nothing', () => {
+    const msg = explainNoCameraChannel(profile({ currentVendor: null })) ?? '';
+    expect(msg).toMatch(/Dreame app/i);
+  });
 });

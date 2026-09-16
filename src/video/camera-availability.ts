@@ -46,10 +46,32 @@ export function explainNoCameraChannel(profile: DeviceVideoProfile): string | nu
       `not a provisioning fault.`
     );
   }
-  // A camera, online, and still no channel: it has never bound to the video
-  // service. Streaming it once in the vendor app is what creates the binding.
-  const on = profile.currentVendor ?? 'none';
   const supports = profile.supportedVendors.length > 0 ? profile.supportedVendors.join(', ') : 'none';
+  // ON A VENDOR WE DO NOT SPEAK.
+  //
+  // `iotId` is read from the ALIYUN bind endpoint (`iotuserbind/device/info`),
+  // so a device provisioned on Tencent has none BY CONSTRUCTION — it is not
+  // missing, it does not live there. Measured on a live X50 on 2026-09-16
+  // while its owner was watching the stream in the Dreame app: `vendor: 'tx'`,
+  // `supports: ['tx','ali']`, `iotId: null`.
+  //
+  // Telling that owner to "open it once in the app to create the binding" is
+  // advice that cannot work, and it was given — while the app was streaming.
+  // A diagnostic that sends someone to do a useless thing is worse than one
+  // that says nothing, so this case says what is actually true.
+  if (profile.currentVendor === 'tx') {
+    return (
+      `${who} is a camera and online, but is provisioned on the TENCENT video ` +
+      `vendor (vendor: tx; supports: ${supports}), and this library implements ` +
+      `only the Aliyun LinkVisual path — the channel id it needs lives on ` +
+      `Aliyun and a tx device has none. Re-pairing or re-opening the camera in ` +
+      `the app will not change this.`
+    );
+  }
+  // A camera, online, on no vendor at all: it has never bound to the video
+  // service. Streaming it once in the vendor app is what creates the binding —
+  // and here that advice is right.
+  const on = profile.currentVendor ?? 'none';
   return (
     `${who} is a camera and online, but has no video channel yet ` +
     `(vendor: ${on}; supports: ${supports}). The device has not bound to the ` +
