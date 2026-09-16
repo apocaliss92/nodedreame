@@ -11,6 +11,7 @@ export {
   getDeviceVideoProfile,
   type VideoRequestInput,
 } from './client.js';
+export { explainNoCameraChannel } from './camera-availability.js';
 export { toVideoProfile } from './profile.js';
 export type { VideoVendor, VideoAccessToken, DeviceVideoProfile } from './types.js';
 

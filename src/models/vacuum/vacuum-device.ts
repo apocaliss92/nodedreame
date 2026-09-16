@@ -47,6 +47,7 @@ import {
 } from './capabilities.js';
 import { DreameError } from '../../transport/errors.js';
 import { DreameVideoSession } from '../../video/aliyun/session.js';
+import { explainNoCameraChannel } from '../../video/camera-availability.js';
 import { getDeviceVideoProfile } from '../../video/client.js';
 import {
   DreameCameraController,
@@ -870,11 +871,18 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
     const region = this.region;
     const relay =
       opts?.relay ?? new DreameVideoSession({ session, region });
-    const iotId =
-      opts?.iotId ??
-      (await getDeviceVideoProfile({ session, region, did: this.deviceId })).iotId;
+    // The profile is KEPT, not reduced to its `iotId` and discarded. When the
+    // channel is missing it is the only thing that can say why — see
+    // `explainNoCameraChannel`. The old sentence named the missing field and
+    // covered four different causes with it, and telling them apart meant
+    // reading this library's source.
+    let iotId = opts?.iotId ?? null;
     if (!iotId) {
-      throw new DreameError('device has no LinkVisual iotId; not a camera device or not provisioned');
+      const profile = await getDeviceVideoProfile({ session, region, did: this.deviceId });
+      iotId = profile.iotId;
+      if (!iotId) {
+        throw new DreameError(explainNoCameraChannel(profile) ?? 'device has no video channel');
+      }
     }
     return new DreameCameraController({
       device: this,

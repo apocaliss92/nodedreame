@@ -201,6 +201,7 @@ export {
   getAliyunAuthCode,
   getVideoFamilyId,
   getDeviceVideoProfile,
+  explainNoCameraChannel,
   toVideoProfile,
 } from './video/index.js';
 export type {
