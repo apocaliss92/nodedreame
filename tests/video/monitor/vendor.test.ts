@@ -109,6 +109,9 @@ function fakeVacuum(statuses: readonly unknown[]): {
   const state = { reads: 0 }
   const device = Object.create(VacuumDevice.prototype) as VacuumDevice
   Object.assign(device, {
+    // `currentSession` is protected on the real device; the switch reads it to
+    // mint the monitor session the payload must carry.
+    currentSession: () => ({ uid: 'u1', accessToken: 'A', expiresAt: 0, region: 'eu' }),
     callAction: async (siid: number, aiid: number, input: unknown[]) => {
       calls.push({ siid, aiid, input })
       return { code: 0 }
@@ -144,7 +147,23 @@ describe('setVideoVendor', () => {
     expect(f.calls).toHaveLength(1)
     expect(f.calls[0]?.siid).toBe(10001)
     expect(f.calls[0]?.aiid).toBe(7)
-    expect(JSON.stringify(f.calls[0]?.input)).toContain('"vendor":"ali"')
+
+    /**
+     * THE PAYLOAD SHAPE, not merely its contents.
+     *
+     * The device wants `value` as a JSON STRING carrying a `session`; an
+     * object without one is SILENTLY IGNORED — measured on an X50 on
+     * 2026-09-16, which stayed on `tx` with `initStatus: 1` and never
+     * protested. The first version of this test asserted only that the
+     * serialised input contained `"vendor":"ali"`, which is true of the broken
+     * shape too — a fake that accepts what production got wrong.
+     */
+    const entry = f.calls[0]?.input[0] as { piid: number; value: unknown }
+    expect(entry.piid).toBe(11)
+    expect(typeof entry.value).toBe('string')
+    const sent: unknown = JSON.parse(String(entry.value))
+    expect(sent).toMatchObject({ vendor: 'ali' })
+    expect(typeof (sent as { session?: unknown }).session).toBe('string')
   })
 
   /**

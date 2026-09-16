@@ -50,6 +50,7 @@ import { DreameVideoSession } from '../../video/aliyun/session.js';
 import { explainNoCameraChannel } from '../../video/camera-availability.js';
 import { getDeviceVideoProfile } from '../../video/client.js';
 import { MONITOR_AIID, MONITOR_PIID, MONITOR_SIID } from '../../video/monitor/constants.js';
+import { buildActionInput, makeMonitorSession } from '../../video/monitor/protocol.js';
 import {
   parseVideoVendorStatus,
   vendorSwitchSettled,
@@ -951,8 +952,14 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
     if (vendorSwitchSettled(already, vendor)) {
       return already;
     }
+    // THROUGH THE ONE BUILDER. The device wants `value` as a JSON STRING that
+    // also carries a `session`; an object without one is silently ignored —
+    // measured on an X50 on 2026-09-16, which stayed on `tx` with
+    // `initStatus: 1` and never protested. Hand-shaping this payload is how
+    // that happened, so it is shaped where every other camera action is.
+    const session = makeMonitorSession(this.currentSession().uid);
     await this.callAction(MONITOR_SIID, MONITOR_AIID.VIDEO_VENDOR, [
-      { piid: MONITOR_PIID.VIDEO_VENDOR_STATUS, value: videoVendorSwitchParams(vendor) },
+      buildActionInput(MONITOR_PIID.VIDEO_VENDOR_STATUS, videoVendorSwitchParams(vendor), session),
     ]);
     // The app's own cadence: every 5 s, ten times.
     const every = opts?.pollIntervalMs ?? 5_000;
