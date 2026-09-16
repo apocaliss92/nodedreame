@@ -78,3 +78,10 @@ export {
   type AvcConfig,
   type AacConfig,
 } from './media/index.js';
+
+export {
+  parseVideoVendorStatus,
+  vendorSwitchSettled,
+  videoVendorSwitchParams,
+  type VideoVendorStatus,
+} from './monitor/vendor.js';

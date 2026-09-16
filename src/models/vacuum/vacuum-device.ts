@@ -49,6 +49,14 @@ import { DreameError } from '../../transport/errors.js';
 import { DreameVideoSession } from '../../video/aliyun/session.js';
 import { explainNoCameraChannel } from '../../video/camera-availability.js';
 import { getDeviceVideoProfile } from '../../video/client.js';
+import { MONITOR_AIID, MONITOR_PIID, MONITOR_SIID } from '../../video/monitor/constants.js';
+import {
+  parseVideoVendorStatus,
+  vendorSwitchSettled,
+  videoVendorSwitchParams,
+  type VideoVendorStatus,
+} from '../../video/monitor/vendor.js';
+import type { VideoVendor } from '../../video/types.js';
 import {
   DreameCameraController,
   type RelayMinter,
@@ -899,6 +907,68 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
       ...(opts?.onKeepAliveError ? { onKeepAliveError: opts.onKeepAliveError } : {}),
       ...(opts?.log ? { log: opts.log } : {}),
     });
+  }
+
+  /**
+   * What video backend this robot is on, and whether that backend's SDK is up.
+   *
+   * A CACHED read by default: the cloud shadow answers for a robot on its dock
+   * without waking it, which is the whole point of asking before deciding how
+   * to stream. Pass `{ live: true }` when the answer must be current — while a
+   * switch settles, for instance.
+   */
+  async readVideoVendorStatus(opts?: { live?: boolean }): Promise<VideoVendorStatus> {
+    const props = [{ siid: MONITOR_SIID, piid: MONITOR_PIID.VIDEO_VENDOR_STATUS }];
+    const results = opts?.live === true
+      ? await this.refreshProperties(props)
+      : await this.refreshCachedProperties(props);
+    return parseVideoVendorStatus(results[0]?.value);
+  }
+
+  /**
+   * Move this robot onto a video backend, and WAIT until it is really there.
+   *
+   * The two backends are not interchangeable: measured on an X50 on
+   * 2026-09-16, a robot on `tx` offers only Tencent's proprietary UDP P2P
+   * plane (`getRtcInfo` answers 404), while the same robot on `ali` streams
+   * through a plain RTMP relay this library implements end to end. So which
+   * one it sits on decides whether it can be streamed at all.
+   *
+   * The device reports the NEW vendor before its SDK is up, which is why the
+   * app polls rather than trusting the action's return — and why this resolves
+   * on `initStatus === 1` and not a moment earlier. A half-switched robot
+   * answers questions about a backend it cannot yet serve.
+   *
+   * Only meaningful on a dual-vendor device (`videoDynamicVendor`, with the
+   * target in `defaultVendors`); a device that cannot move simply never
+   * settles, and this reports that as a timeout rather than a silent success.
+   */
+  async setVideoVendor(
+    vendor: VideoVendor,
+    opts?: { timeoutMs?: number; pollIntervalMs?: number },
+  ): Promise<VideoVendorStatus> {
+    const already = await this.readVideoVendorStatus({ live: true });
+    if (vendorSwitchSettled(already, vendor)) {
+      return already;
+    }
+    await this.callAction(MONITOR_SIID, MONITOR_AIID.VIDEO_VENDOR, [
+      { piid: MONITOR_PIID.VIDEO_VENDOR_STATUS, value: videoVendorSwitchParams(vendor) },
+    ]);
+    // The app's own cadence: every 5 s, ten times.
+    const every = opts?.pollIntervalMs ?? 5_000;
+    const deadline = Date.now() + (opts?.timeoutMs ?? every * 10);
+    let last = already;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, every));
+      last = await this.readVideoVendorStatus({ live: true });
+      if (vendorSwitchSettled(last, vendor)) {
+        return last;
+      }
+    }
+    throw new DreameError(
+      `video vendor did not settle on "${vendor}" within the timeout ` +
+        `(last seen: vendor=${last.vendor ?? 'unknown'}, initStatus=${String(last.initStatus)})`,
+    );
   }
 
   /** Props worth seeding on start() / polling — exported for the facade. */
