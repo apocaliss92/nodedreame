@@ -3,6 +3,7 @@ import {
   type BaseDeviceInput,
   type BaseDeviceEvents,
 } from '../../device/base-device.js';
+import type { MiotProp } from '../../cloud/types.js';
 import {
   VACUUM_PROP,
   VACUUM_ACTION,
@@ -37,6 +38,10 @@ import {
   VACUUM_CONSUMABLES,
   consumableSpec,
   type ConsumableReading,
+  type ConsumableRefreshSource,
+  type ConsumableResetResult,
+  type ConsumableSpec,
+  type ConsumableTimeLeft,
   type DreameConsumableKey,
 } from './consumables.js';
 import { enumLookup } from '../_shared/decode.js';
@@ -58,10 +63,7 @@ import {
   type VideoVendorStatus,
 } from '../../video/monitor/vendor.js';
 import type { VideoVendor } from '../../video/types.js';
-import {
-  DreameCameraController,
-  type RelayMinter,
-} from '../../video/monitor/controller.js';
+import { DreameCameraController, type RelayMinter } from '../../video/monitor/controller.js';
 import {
   decodeVacuumMap,
   applyVacuumPFrame,
@@ -138,6 +140,23 @@ export interface WifiSignalMapInput {
   timeoutMs?: number;
   /** Caller-supplied AbortSignal. */
   signal?: AbortSignal;
+}
+
+/** The properties one consumable reset rewrites: its life % and its time-left twin. */
+function consumableProps(spec: ConsumableSpec): MiotProp[] {
+  return spec.timeLeft === null
+    ? [spec.life]
+    : [spec.life, { siid: spec.timeLeft.siid, piid: spec.timeLeft.piid }];
+}
+
+/** Which source answered a consumable re-read, and the error that stopped the better one. */
+interface ConsumableReread {
+  readonly refreshedFrom: ConsumableRefreshSource | null;
+  readonly error: Error | null;
+}
+
+function asError(err: unknown): Error {
+  return err instanceof Error ? err : new Error(String(err));
 }
 
 const SUCTION = enumLookup<SuctionLevel>([
@@ -310,26 +329,77 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
   }
 
   /**
-   * Seed EVERY consumable life property from the cloud shadow (no robot wake) so
-   * {@link supportedConsumables} reflects the full set on a docked robot. The
-   * consumable life values are static settings the robot rarely re-pushes over
-   * MQTT, so a fresh connect surfaces only the actively-changing ones without this.
+   * Time left before a consumable needs attention, in the unit the robot counts
+   * it in (see {@link ConsumableSpec.timeLeft}), or `null` when the model does
+   * not report it or the key has no time-left twin.
+   */
+  consumableTimeLeft(key: DreameConsumableKey): ConsumableTimeLeft | null {
+    const spec = consumableSpec(key);
+    if (spec === undefined || spec.timeLeft === null) return null;
+    const value = this.#num(spec.timeLeft.siid, spec.timeLeft.piid);
+    return value === null ? null : { value, unit: spec.timeLeft.unit };
+  }
+
+  /**
+   * Seed EVERY consumable life property AND its time-left twin from the cloud
+   * shadow (no robot wake), in one call, so {@link supportedConsumables} and
+   * {@link consumableTimeLeft} reflect the full set on a docked robot. The
+   * robot rarely re-pushes these over MQTT, so a consumer that wants them fresh
+   * must call this again — the library does not poll them.
    */
   async refreshConsumables(): Promise<void> {
-    await this.refreshCachedProperties(VACUUM_CONSUMABLES.map((c) => c.life));
+    await this.refreshCachedProperties(VACUUM_CONSUMABLES.flatMap(consumableProps));
   }
 
   /**
    * Reset (mark replaced → life back to 100%) one consumable via its MIoT reset
-   * action. Rejects when the model exposes no reset action for the key (e.g.
-   * `dust-bag`) or the key is unknown.
+   * action, then re-read that consumable's life % and time left ONCE so the
+   * cache — and every getter after this resolves — reflects the reset. The
+   * re-read is live; if the robot does not answer it falls back to the cloud
+   * shadow (which may still hold the pre-reset value until the robot reports),
+   * and `refreshedFrom` says which one answered.
+   *
+   * Rejects when the model exposes no reset action for the key (e.g.
+   * `dust-bag`), the key is unknown, or the action itself fails. A failed
+   * RE-READ does not reject: the reset happened, and the result says the values
+   * are unknown (`refreshedFrom: null`).
    */
-  async resetConsumable(key: DreameConsumableKey): Promise<unknown> {
+  async resetConsumable(key: DreameConsumableKey): Promise<ConsumableResetResult> {
     const spec = consumableSpec(key);
     if (spec === undefined || spec.reset === null) {
       throw new DreameError(`resetConsumable: no reset action for consumable "${key}"`);
     }
-    return this.callAction(spec.reset.siid, spec.reset.aiid, []);
+    const actionResult = await this.callAction(spec.reset.siid, spec.reset.aiid, []);
+    const refresh = await this.#rereadConsumable(spec);
+    const fresh = refresh.refreshedFrom !== null;
+    return {
+      key,
+      actionResult,
+      refreshedFrom: refresh.refreshedFrom,
+      leftPct: fresh ? this.consumableLeftPct(key) : null,
+      timeLeft: fresh ? this.consumableTimeLeft(key) : null,
+      refreshError: refresh.error,
+    };
+  }
+
+  /** One targeted re-read of a consumable's properties: live, else the cloud shadow. */
+  async #rereadConsumable(spec: ConsumableSpec): Promise<ConsumableReread> {
+    const props = consumableProps(spec);
+    let liveError: Error;
+    try {
+      await this.refreshProperties(props);
+      return { refreshedFrom: 'device', error: null };
+    } catch (err: unknown) {
+      // The robot did not answer (asleep / 80001) — the shadow is the next best
+      // source, and the caller is told why the device itself was not read.
+      liveError = asError(err);
+    }
+    try {
+      await this.refreshCachedProperties(props);
+      return { refreshedFrom: 'cloud-shadow', error: liveError };
+    } catch (err: unknown) {
+      return { refreshedFrom: null, error: asError(err) };
+    }
   }
 
   // -- AI obstacle-detection ----------------------------------------------
@@ -732,7 +802,9 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
         break;
       }
       if (Date.now() + pollMs >= deadline) {
-        throw new DreameError('wifi signal map not available (none stored yet, or request timed out)');
+        throw new DreameError(
+          'wifi signal map not available (none stored yet, or request timed out)',
+        );
       }
       await new Promise((r) => setTimeout(r, pollMs));
     }
@@ -878,8 +950,7 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
   }): Promise<DreameCameraController> {
     const session = this.currentSession();
     const region = this.region;
-    const relay =
-      opts?.relay ?? new DreameVideoSession({ session, region });
+    const relay = opts?.relay ?? new DreameVideoSession({ session, region });
     // The profile is KEPT, not reduced to its `iotId` and discarded. When the
     // channel is missing it is the only thing that can say why — see
     // `explainNoCameraChannel`. The old sentence named the missing field and
@@ -920,9 +991,10 @@ export class VacuumDevice extends BaseDevice<VacuumDeviceEvents> {
    */
   async readVideoVendorStatus(opts?: { live?: boolean }): Promise<VideoVendorStatus> {
     const props = [{ siid: MONITOR_SIID, piid: MONITOR_PIID.VIDEO_VENDOR_STATUS }];
-    const results = opts?.live === true
-      ? await this.refreshProperties(props)
-      : await this.refreshCachedProperties(props);
+    const results =
+      opts?.live === true
+        ? await this.refreshProperties(props)
+        : await this.refreshCachedProperties(props);
     return parseVideoVendorStatus(results[0]?.value);
   }
 

@@ -28,5 +28,10 @@ export {
   isDreameConsumableKey,
   type ConsumableSpec,
   type ConsumableReading,
+  type ConsumableRefreshSource,
+  type ConsumableResetResult,
+  type ConsumableTimeLeft,
+  type ConsumableTimeLeftSpec,
+  type ConsumableTimeLeftUnit,
   type DreameConsumableKey,
 } from './consumables.js';

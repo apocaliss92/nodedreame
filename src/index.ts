@@ -49,7 +49,11 @@ export type {
 // and the capability records/resolver. Internal siid/piid/aiid property maps,
 // the model factory's property tables, and the decode helpers stay private.
 export { VacuumDevice } from './models/vacuum/vacuum-device.js';
-export type { CleanOpts, VacuumGetMapInput, WifiSignalMapInput } from './models/vacuum/vacuum-device.js';
+export type {
+  CleanOpts,
+  VacuumGetMapInput,
+  WifiSignalMapInput,
+} from './models/vacuum/vacuum-device.js';
 // Fetcher-injection seam for VacuumDevice.getMap: the interface a custom
 // signed-blob fetcher implements, plus its input shape. The concrete
 // OssFetcher class and the decode internals stay private.
@@ -92,6 +96,11 @@ export {
 export type {
   ConsumableSpec,
   ConsumableReading,
+  ConsumableRefreshSource,
+  ConsumableResetResult,
+  ConsumableTimeLeft,
+  ConsumableTimeLeftSpec,
+  ConsumableTimeLeftUnit,
   DreameConsumableKey,
 } from './models/vacuum/consumables.js';
 
